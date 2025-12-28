@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+
+# Generated files from this project
+*.wav
+*.srt
+*_subtitled.mp4
