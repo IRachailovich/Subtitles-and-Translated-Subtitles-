@@ -9,7 +9,7 @@ from utils import sec_to_srt, get_video_duration, run_ffmpeg_with_progress
 
 # Import translation libraries
 try:
-    from transformers import MarianMTModel, MarianTokenizer
+    from transformers import MarianMTModel, MarianTokenizer, AutoTokenizer, AutoModelForSeq2SeqLM
     import torch
 except ImportError:
     print("Transformers library not found. Please install it with 'pip install transformers torch sentencepiece'")
@@ -71,42 +71,63 @@ def transcribe_audio(audio_path, model_size="medium"):
 # Step 3: Translate segments
 # -----------------------------
 def translate_segments(segments, src_lang, tgt_lang):
-    """Translates the text in each segment using a Helsinki-NLP model."""
-    model_name = f'Helsinki-NLP/opus-mt-{src_lang}-{tgt_lang}'
-    print(f"Loading translation model: {model_name}")
+    """
+    Translates subtitle segments using the best available
+    open-source model for each language.
+    """
 
-    try:
+    # -----------------------------
+    # Model selection
+    # -----------------------------
+    if tgt_lang == "ar":
+        # Best open-source English → Arabic MT
+        model_name = "Helsinki-NLP/opus-mt-tc-big-en-ar"
         tokenizer = MarianTokenizer.from_pretrained(model_name)
         model = MarianMTModel.from_pretrained(model_name)
-    except OSError:
-        print(f"Error: Translation model '{model_name}' not found.")
-        print("Please check the source and target language codes.")
-        print(f"Whisper detected source language: '{src_lang}'")
-        print("Supported target languages:", ", ".join(get_supported_languages().keys()))
-        sys.exit(1)
 
-    # Batch translation for efficiency
-    original_texts = [seg['text'] for seg in segments]
-    
-    # Use tqdm for progress bar
+    elif tgt_lang == "fa":
+        # Best open-source English → Persian MT
+        model_name = "SeyedAli/English-to-Persian-Translation-mT5-V1"
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+
+    else:
+        # Default fallback (existing behavior)
+        model_name = f"Helsinki-NLP/opus-mt-{src_lang}-{tgt_lang}"
+        tokenizer = MarianTokenizer.from_pretrained(model_name)
+        model = MarianMTModel.from_pretrained(model_name)
+
+    print(f"Loading translation model: {model_name}")
+
+    # -----------------------------
+    # Batch translation
+    # -----------------------------
+    original_texts = [seg["text"] for seg in segments]
     translated_texts = []
-    batch_size = 8 # Adjust batch size based on your available memory
-    
-    print(f"Translating {len(original_texts)} segments to '{tgt_lang}'...")
-    for i in tqdm(range(0, len(original_texts), batch_size), desc="Translating"):
-        batch = original_texts[i:i+batch_size]
-        
-        # Prepare text for the model
-        encoded_batch = tokenizer(batch, return_tensors="pt", padding=True, truncation=True)
-        
-        # Generate translation
-        with torch.no_grad():
-            translated_batch = model.generate(**encoded_batch)
-        
-        # Decode and add to list
-        translated_texts.extend(tokenizer.batch_decode(translated_batch, skip_special_tokens=True))
+    batch_size = 8
 
-    # Create new segments with translated text
+    print(f"Translating {len(original_texts)} segments to '{tgt_lang}'...")
+
+    for i in tqdm(range(0, len(original_texts), batch_size), desc="Translating"):
+        batch = original_texts[i:i + batch_size]
+
+        encoded = tokenizer(
+            batch,
+            return_tensors="pt",
+            padding=True,
+            truncation=True
+        )
+
+        with torch.no_grad():
+            outputs = model.generate(**encoded, max_length=512)
+
+        translated_texts.extend(
+            tokenizer.batch_decode(outputs, skip_special_tokens=True)
+        )
+
+    # -----------------------------
+    # Rebuild segments
+    # -----------------------------
     translated_segments = []
     for i, seg in enumerate(segments):
         translated_segments.append({
@@ -116,6 +137,7 @@ def translate_segments(segments, src_lang, tgt_lang):
         })
 
     return translated_segments
+
 
 
 # -----------------------------
