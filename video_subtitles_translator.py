@@ -33,7 +33,7 @@ def get_supported_languages():
     return {
         "ar": "Arabic", "de": "German", "es": "Spanish", "fr": "French",
         "he": "Hebrew", "it": "Italian", "ja": "Japanese", "pt": "Portuguese",
-        "ru": "Russian", "zh": "Chinese", "en": "English"
+        "ru": "Russian", "zh": "Chinese", "en": "English", "fa": "Persian"
     }
 
 
@@ -136,7 +136,7 @@ def write_srt(segments, srt_path):
 # -----------------------------
 # Step 5: Burn subtitles
 # -----------------------------
-def burn_subtitles(video_path, srt_path, output_path):
+def burn_subtitles(video_path, srt_path, output_path, lang_code=None):
     video_path_obj = Path(video_path).resolve()
     srt_path_obj = Path(srt_path).resolve()
     output_path_obj = Path(output_path).resolve()
@@ -146,8 +146,30 @@ def burn_subtitles(video_path, srt_path, output_path):
     srt_filename_relative = srt_path_obj.relative_to(cwd_dir).as_posix()
     output_filename_relative = output_path_obj.name
 
-    vf_arg = f"subtitles=filename='{srt_filename_relative}'"
+    # Base subtitle filter
     
+    # Apply Amiri font only for Arabic and Persian
+    font_path = "Amiri-Regular.ttf"
+    fonts_dir = Path(font_path).parent.as_posix()
+
+    if lang_code in ["ar", "fa"]:
+        vf_arg = (
+            f"subtitles=filename='{srt_filename_relative}':"
+            f"charenc=UTF-8:"
+            f"fontsdir='{fonts_dir}':"
+            "force_style='FontName=Amiri,"
+            "FontSize=36,"
+            "PrimaryColour=&HFFFFFF&,"
+            "OutlineColour=&H000000&,"
+            "Shadow=1,"
+            "Outline=1,"
+            "BorderStyle=1'"
+        )
+    else:
+        vf_arg = f"subtitles=filename='{srt_filename_relative}':charenc=UTF-8"
+
+    # ----------------------------------
+
     command = [
         "ffmpeg", "-y",
         "-i", video_filename_relative,
@@ -189,7 +211,7 @@ def main(video_path, srt_path_arg=None, target_language=None):
         print("Step 1: Extracting audio...")
         extract_audio(str(video_path_obj), audio_path)
 
-        print("\nStep 2: Transcribing audio...")
+        print("\\nStep 2: Transcribing audio...")
         segments, info = transcribe_audio(audio_path, model_size=CONFIG["model_size"])
 
         # Decide the final segments (translated or original)
@@ -197,26 +219,26 @@ def main(video_path, srt_path_arg=None, target_language=None):
         srt_lang_code = info.language
 
         if target_language and target_language != info.language:
-            print(f"\nStep 3: Translating from '{info.language}' to '{target_language}'...")
+            print(f"\\nStep 3: Translating from '{info.language}' to '{target_language}'...")
             final_segments = translate_segments(segments, src_lang=info.language, tgt_lang=target_language)
             srt_lang_code = target_language
         else:
-            print("\nStep 3: Skipping translation.")
+            print("\\nStep 3: Skipping translation.")
 
         # Define SRT path based on language
         srt_path = f"{base}.{srt_lang_code}.srt"
 
-        print(f"\nStep 4: Writing subtitles to '{srt_path}'...")
+        print(f"\\nStep 4: Writing subtitles to '{srt_path}'...")
         write_srt(final_segments, srt_path)
 
-        print("\nStep 5: Burning subtitles into video...")
+        print("\\nStep 5: Burning subtitles into video...")
         output_path = f"{base}_subtitled_{srt_lang_code}.mp4"
-        burn_subtitles(str(video_path_obj), srt_path, output_path)
+        burn_subtitles(str(video_path_obj), srt_path, output_path, srt_lang_code)
 
         # Optional cleanup
         os.remove(audio_path)
 
-    print("\n--- Done ---")
+    print("\\n--- Done ---")
     print(f"Output video: {output_path}")
 
 
