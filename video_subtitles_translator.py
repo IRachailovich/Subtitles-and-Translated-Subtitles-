@@ -4,6 +4,7 @@ import argparse
 from faster_whisper import WhisperModel
 from tqdm import tqdm
 import os
+import json
 from pathlib import Path
 from utils import sec_to_srt, get_video_duration, run_ffmpeg_with_progress
 
@@ -22,6 +23,16 @@ CONFIG = {
     "audio_sample_rate": 16000,
 }
 # ---------------------
+
+
+# Helper function for color conversion
+def hex_to_ass_color(hex_color):
+    """Convert web hex color (#RRGGBB) to ASS subtitle format (&HBBGGRR&)"""
+    hex_color = hex_color.lstrip('#')
+    r = hex_color[0:2]
+    g = hex_color[2:4]
+    b = hex_color[4:6]
+    return f"&H{b.upper()}{g.upper()}{r.upper()}&"
 
 
 # ---------------------------------
@@ -164,7 +175,7 @@ def write_srt(segments, srt_path):
 # -----------------------------
 # Step 5: Burn subtitles
 # -----------------------------
-def burn_subtitles(video_path, srt_path, output_path, lang_code=None):
+def burn_subtitles(video_path, srt_path, output_path, lang_code=None, style_config=None):
     video_path_obj = Path(video_path).resolve()
     srt_path_obj = Path(srt_path).resolve()
     output_path_obj = Path(output_path).resolve()
@@ -176,25 +187,77 @@ def burn_subtitles(video_path, srt_path, output_path, lang_code=None):
 
     # Base subtitle filter
     
-    # Apply Amiri font only for Arabic and Persian
-    font_path = "Amiri-Regular.ttf"
-    fonts_dir = Path(font_path).parent.as_posix()
-
-    if lang_code in ["ar", "fa"]:
-        vf_arg = (
-            f"subtitles=filename='{srt_filename_relative}':"
-            f"charenc=UTF-8:"
-            f"fontsdir='{fonts_dir}':"
-            "force_style='FontName=Amiri,"
-            "FontSize=36,"
-            "PrimaryColour=&HFFFFFF&,"
-            "OutlineColour=&H000000&,"
-            "Shadow=1,"
-            "Outline=1,"
-            "BorderStyle=1'"
-        )
+    # Use custom style config if provided, otherwise use defaults
+    if style_config:
+        font_name = style_config.get("font_name", "Arial")
+        font_size = style_config.get("font_size", 20)
+        primary_color = hex_to_ass_color(style_config.get("primary_color", "#FFFFFF"))
+        text_outline_color = hex_to_ass_color(style_config.get("outline_color", "#000000"))  # Text outline from outline_color field
+        background_color = hex_to_ass_color(style_config.get("back_color", "#000000"))  # Background from back_color field
+        outline_width = style_config.get("outline_width", 1)
+        shadow = style_config.get("shadow", 1)
+        border_style = style_config.get("border_style", 3)
+        
+        # Apply font directory if using special fonts
+        font_path = "Amiri-Regular.ttf"
+        fonts_dir = Path(font_path).parent.as_posix()
+        
+        if font_name == "Amiri":
+            vf_arg = (
+                f"subtitles=filename='{srt_filename_relative}':"
+                f"charenc=UTF-8:"
+                f"fontsdir='{fonts_dir}':"
+                f"force_style='FontName={font_name},"
+                f"FontSize={font_size},"
+                f"PrimaryColour={primary_color},"
+                f"OutlineColour={text_outline_color},"
+                f"BackColour={background_color},"
+                f"Shadow={shadow},"
+                f"Outline={outline_width},"
+                f"BorderStyle={border_style}'"
+            )
+        else:
+            vf_arg = (
+                f"subtitles=filename='{srt_filename_relative}':"
+                f"charenc=UTF-8:"
+                f"force_style='FontName={font_name},"
+                f"FontSize={font_size},"
+                f"PrimaryColour={primary_color},"
+                f"OutlineColour={text_outline_color},"
+                f"BackColour={background_color},"
+                f"Shadow={shadow},"
+                f"Outline={outline_width},"
+                f"BorderStyle={border_style}'"
+            )
     else:
-        vf_arg = f"subtitles=filename='{srt_filename_relative}':charenc=UTF-8"
+        # Default styles based on language
+        font_path = "Amiri-Regular.ttf"
+        fonts_dir = Path(font_path).parent.as_posix()
+
+        if lang_code in ["ar", "fa"]:
+            vf_arg = (
+                f"subtitles=filename='{srt_filename_relative}':"
+                f"charenc=UTF-8:"
+                f"fontsdir='{fonts_dir}':"
+                "force_style='FontName=Amiri,"
+                "FontSize=36,"
+                "PrimaryColour=&HFFFFFF&,"
+                "OutlineColour=&H000000&,"
+                "Shadow=1,"
+                "Outline=1,"
+                "BorderStyle=1'"
+            )
+        else:
+            vf_arg = (
+                f"subtitles=filename='{srt_filename_relative}':"
+                f"charenc=UTF-8:"
+                "force_style='FontSize=20,"
+                "PrimaryColour=&HFFFFFF&,"
+                "OutlineColour=&H000000&,"
+                "Shadow=1,"
+                "Outline=1,"
+                "BorderStyle=3'"
+            )
 
     # ----------------------------------
 
@@ -212,7 +275,7 @@ def burn_subtitles(video_path, srt_path, output_path, lang_code=None):
 # -----------------------------
 # Main pipeline
 # -----------------------------
-def main(video_path, srt_path_arg=None, target_language=None):
+def main(video_path, srt_path_arg=None, target_language=None, style_config=None):
     video_path_obj = Path(video_path).resolve()
 
     if not video_path_obj.exists():
@@ -230,7 +293,7 @@ def main(video_path, srt_path_arg=None, target_language=None):
             sys.exit(1)
         
         output_path = f"{base}_subtitled.mp4"
-        burn_subtitles(str(video_path_obj), str(srt_path), output_path)
+        burn_subtitles(str(video_path_obj), str(srt_path), output_path, style_config=style_config)
 
     else:
         # No SRT file provided, run the full pipeline.
@@ -261,7 +324,7 @@ def main(video_path, srt_path_arg=None, target_language=None):
 
         print("\\nStep 5: Burning subtitles into video...")
         output_path = f"{base}_subtitled_{srt_lang_code}.mp4"
-        burn_subtitles(str(video_path_obj), srt_path, output_path, srt_lang_code)
+        burn_subtitles(str(video_path_obj), srt_path, output_path, srt_lang_code, style_config)
 
         # Optional cleanup
         os.remove(audio_path)
@@ -281,8 +344,23 @@ if __name__ == "__main__":
         "--target-language", "-t", type=str, default=None,
         help=f"Optional: Language to translate the subtitles into. Supported codes: {list(supported_langs.keys())}"
     )
+    parser.add_argument(
+        "--config", "-c", type=str, default=None,
+        help="Optional: Path to JSON configuration file for subtitle styling"
+    )
     
     args = parser.parse_args()
+    
+    # Load style config if provided
+    style_config = None
+    if args.config:
+        try:
+            with open(args.config, 'r') as f:
+                style_config = json.load(f)
+            print(f"Loaded style configuration from {args.config}")
+        except Exception as e:
+            print(f"Warning: Could not load config file: {e}")
+            print("Using default styles...")
 
     if args.target_language and args.target_language not in supported_langs:
         print(f"Error: Unsupported target language '{args.target_language}'.")
@@ -291,7 +369,7 @@ if __name__ == "__main__":
         sys.exit(1)
         
     try:
-        main(args.video_path, args.srt_path, args.target_language)
+        main(args.video_path, args.srt_path, args.target_language, style_config)
     except subprocess.CalledProcessError as e:
         print("\n--- FFMPEG COMMAND FAILED ---")
         print(f"Command: {' '.join(e.cmd)}")
