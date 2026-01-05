@@ -91,6 +91,12 @@ def translate_segments(segments, src_lang, tgt_lang):
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
+    elif src_lang == "he" and tgt_lang == "en":
+        # Hebrew → English (note: direction is reversed in model name)
+        model_name = "Helsinki-NLP/opus-mt-tc-big-he-en"
+        tokenizer = MarianTokenizer.from_pretrained(model_name)
+        model = MarianMTModel.from_pretrained(model_name)
+
     else:
         # Default fallback (existing behavior)
         model_name = f"Helsinki-NLP/opus-mt-{src_lang}-{tgt_lang}"
