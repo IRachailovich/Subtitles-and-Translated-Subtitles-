@@ -1,0 +1,39 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: cloud/Dockerfile
+    ports: ["8000:8000"]
+    environment:
+      SUBGEN_DEV_AUTH: "true"
+      SUBGEN_PUBLIC_BASE_URL: http://localhost:8000
+      SUBGEN_CLOUD_DATABASE_URL: sqlite:////data/subgen-cloud.db
+      SUBGEN_CLOUD_STORAGE_DIR: /data/objects
+      SUBGEN_STORAGE_BACKEND: local
+      SUBGEN_ENABLE_PIPELINE_WORKER: "false"
+      SUBGEN_PROCESSING_ENABLED: "true"
+      SUBGEN_WORKER_DISPATCH_MODE: polling
+    volumes: ["subgen-cloud-data:/data"]
+
+  worker:
+    build:
+      context: ..
+      dockerfile: cloud/Dockerfile.worker
+    profiles: ["worker"]
+    command: ["python", "-m", "subgen_cloud.worker"]
+    environment:
+      SUBGEN_DEV_AUTH: "true"
+      SUBGEN_CLOUD_DATABASE_URL: sqlite:////data/subgen-cloud.db
+      SUBGEN_CLOUD_STORAGE_DIR: /data/objects
+      SUBGEN_STORAGE_BACKEND: local
+      SUBGEN_ENABLE_PIPELINE_WORKER: "true"
+      SUBGEN_ENABLE_GPU_WORKER: "false"
+      SUBGEN_PROCESSING_ENABLED: "true"
+      SUBGEN_WORKER_DISPATCH_MODE: polling
+    volumes:
+      - subgen-cloud-data:/data
+      - subgen-model-cache:/var/cache/subgen
+
+volumes:
+  subgen-cloud-data:
+  subgen-model-cache:

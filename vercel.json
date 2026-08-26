@@ -1,0 +1,16 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "node cloud/build-vercel.mjs",
+  "outputDirectory": "dist-cloud-web",
+  "cleanUrls": true,
+  "headers": [
+    {
+      "source": "/service-worker.js",
+      "headers": [{"key": "Cache-Control", "value": "no-cache, no-store, must-revalidate"}]
+    },
+    {
+      "source": "/runtime-config.js",
+      "headers": [{"key": "Cache-Control", "value": "no-cache, no-store, must-revalidate"}]
+    }
+  ]
+}

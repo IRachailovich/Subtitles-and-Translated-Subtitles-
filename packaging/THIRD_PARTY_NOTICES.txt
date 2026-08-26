@@ -1,0 +1,13 @@
+SubGen includes third-party software in its Windows installer.
+
+FFmpeg
+------
+This software uses code of FFmpeg licensed under the LGPLv2.1 or later.
+FFmpeg project and source code: https://ffmpeg.org/
+The exact FFmpeg source corresponding to a distributed installer must be linked
+from the release that publishes that installer.
+
+Lucide
+------
+Lucide icons are distributed under the ISC License. The complete license text is
+included in web/vendor/LUCIDE_LICENSE.txt.

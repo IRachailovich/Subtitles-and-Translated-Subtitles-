@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SubGen — Premium Subtitle Generator</title>
+    <link rel="icon" type="image/png" href="assets/app-icon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- Lucide Icons -->
+    <script src="vendor/lucide-1.24.0.min.js"></script>
+</head>
+<body class="dark-theme">
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <div class="brand-icon">
+                    <img src="assets/app-icon.png" alt="" aria-hidden="true">
+                </div>
+                <div class="brand-text">
+                    <span class="brand-title">SubGen</span>
+                    <span class="brand-subtitle">Studio Edition</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-menu">
+                <button class="menu-item active" data-tab="upload">
+                    <i data-lucide="upload-cloud"></i>
+                    <span>Upload & Config</span>
+                </button>
+                <button class="menu-item" data-tab="style-editor">
+                    <i data-lucide="palette"></i>
+                    <span>Subtitle Style</span>
+                </button>
+                <button class="menu-item" data-tab="config" id="nav-config">
+                    <i data-lucide="key"></i>
+                    <span>API Settings</span>
+                </button>
+                <button class="menu-item" data-tab="batch" id="nav-batch">
+                    <i data-lucide="folder-sync"></i>
+                    <span>Drive Batch</span>
+                </button>
+                <button class="menu-item" data-tab="progress">
+                    <i data-lucide="activity"></i>
+                    <span>Process & Logs</span>
+                    <span class="badge badge-pulse" id="running-badge" style="display: none;">Live</span>
+                </button>
+                <button class="menu-item" data-tab="editor" id="nav-editor" disabled>
+                    <i data-lucide="edit-3"></i>
+                    <span>Review & Edit</span>
+                </button>
+                <button class="menu-item" data-tab="export" id="nav-export" disabled>
+                    <i data-lucide="download"></i>
+                    <span>Export Video</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="server-status">
+                    <span class="status-indicator online"></span>
+                    <span class="status-text">Server: Online</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="main-header">
+                <div class="header-title-container">
+                    <h1 id="page-title">Upload & Configuration</h1>
+                    <p id="page-subtitle" class="muted">Upload your video and configure transcription and translation settings.</p>
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn-secondary" id="btn-mobile-access" title="Connect a mobile device" hidden>
+                        <i data-lucide="smartphone"></i>
+                        <span>Mobile Access</span>
+                    </button>
+                    <button class="btn btn-secondary btn-icon" id="btn-theme-toggle" title="Toggle Theme">
+                        <i data-lucide="sun" id="theme-icon-light" style="display: none;"></i>
+                        <i data-lucide="moon" id="theme-icon-dark"></i>
+                    </button>
+                </div>
+            </header>
+
+            <div class="content-body">
+                <!-- TAB 1: UPLOAD & CONFIG -->
+                <section class="tab-panel active" id="panel-upload">
+                    <div class="grid-2col">
+                        <!-- Upload Card -->
+                        <div class="card glass-card upload-section">
+                            <div class="card-header">
+                                <h3 class="card-title"><i data-lucide="video" class="icon-violet"></i> Media Upload</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="dropzone" id="video-dropzone">
+                                    <input type="file" id="video-input" accept="video/*" class="file-input">
+                                    <div class="dropzone-content">
+                                        <div class="dropzone-icon-container">
+                                            <i data-lucide="upload" class="dropzone-icon"></i>
+                                        </div>
+                                        <h4>Drag & drop your video here</h4>
+                                        <p class="muted">Supports MP4, MKV, MOV, AVI, WEBM up to 2GB</p>
+                                        <button class="btn btn-primary mt-4">Browse Files</button>
+                                    </div>
+                                </div>
+
+                                <div class="or-divider" id="local-path-divider" style="text-align: center; margin: 20px 0; color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; display: flex; align-items: center;">
+                                    <span style="flex-grow: 1; height: 1px; background: rgba(255,255,255,0.08); margin-right: 15px;"></span>
+                                    <span>OR</span>
+                                    <span style="flex-grow: 1; height: 1px; background: rgba(255,255,255,0.08); margin-left: 15px;"></span>
+                                </div>
+
+                                <div class="form-group" id="local-path-group" style="margin-bottom: 20px;">
+                                    <label for="local-path-input" style="display: block; font-size: 11px; font-weight: 600; margin-bottom: 8px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Paste Local Video Path</label>
+                                    <div style="display: flex; gap: 10px;">
+                                        <input type="text" id="local-path-input" placeholder="e.g. C:\Videos\lecture.mp4" style="flex-grow: 1; padding: 12px 16px; background-color: rgba(255, 255, 255, 0.03); border: 1px solid var(--card-border); border-radius: 12px; color: var(--text-primary); outline: none; font-family: var(--font-sans); font-size: 14px; transition: border-color 0.15s ease;">
+                                        <button type="button" class="btn btn-secondary" id="btn-load-local-path" style="padding: 0 20px; white-space: nowrap; border-radius: 12px;">Load Path</button>
+                                    </div>
+                                </div>
+
+                                <div class="file-details-card" id="file-details" style="display: none;">
+                                    <div class="file-info">
+                                        <i data-lucide="file-video" class="file-icon text-cyan"></i>
+                                        <div class="file-meta">
+                                            <span class="file-name" id="detail-name">video.mp4</span>
+                                            <span class="file-size muted" id="detail-size">0.0 MB</span>
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-icon btn-danger" id="btn-remove-file" title="Remove File">
+                                        <i data-lucide="trash-2"></i>
+                                    </button>
+                                </div>
+
+                                <div class="video-preview-container mt-4" id="upload-preview-container" style="display: none;">
+                                    <h4 class="mb-2 text-sm font-semibold">Video Preview</h4>
+                                    <video id="upload-video-preview" controls class="video-preview"></video>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Configuration Card -->
+                        <div class="card glass-card config-section">
+                            <div class="card-header">
+                                <h3 class="card-title"><i data-lucide="settings" class="icon-cyan"></i> Translation & Pipeline Settings</h3>
+                            </div>
+                            <div class="card-body">
+                                <form id="config-form">
+                                    <div class="form-group-row">
+                                        <div class="form-group">
+                                            <label for="source-lang">Source Language</label>
+                                            <div class="select-wrapper">
+                                                <select id="source-lang" name="source_language">
+                                                    <option value="">Auto Detect (Recommended)</option>
+                                                    <option value="en">English</option>
+                                                    <option value="es">Spanish (Español)</option>
+                                                    <option value="fr">French (Français)</option>
+                                                    <option value="de">German (Deutsch)</option>
+                                                    <option value="it">Italian (Italiano)</option>
+                                                    <option value="pt">Portuguese (Português)</option>
+                                                    <option value="ru">Russian (Русский)</option>
+                                                    <option value="zh">Chinese (中文)</option>
+                                                    <option value="ar">Arabic (العربية)</option>
+                                                    <option value="ja">Japanese (日本語)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="target-lang">Target Language</label>
+                                            <div class="select-wrapper">
+                                                <select id="target-lang" name="target_language">
+                                                    <option value="">Keep Original (No Translation)</option>
+                                                    <option value="en">English</option>
+                                                    <option value="es" selected>Spanish (Español)</option>
+                                                    <option value="fr">French (Français)</option>
+                                                    <option value="de">German (Deutsch)</option>
+                                                    <option value="it">Italian (Italiano)</option>
+                                                    <option value="pt">Portuguese (Português)</option>
+                                                    <option value="ru">Russian (Русский)</option>
+                                                    <option value="zh">Chinese (中文)</option>
+                                                    <option value="ar">Arabic (العربية)</option>
+                                                    <option value="ja">Japanese (日本語)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                     <div class="form-group mt-4" id="output-dir-group">
+                                         <label for="output-dir">Output & Cache Directory</label>
+                                         <input type="text" id="output-dir" name="last_output_dir" placeholder="e.g. C:\Videos\translated" required class="text-input">
+                                     </div>
+
+                                    <div class="divider"></div>
+
+                                    <div class="section-title-sm">
+                                        <span>Advanced Pipeline</span>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="transcription-provider">Transcription Provider</label>
+                                        <div class="select-wrapper">
+                                            <select id="transcription-provider" name="transcription_provider">
+                                                <option value="local">Whisper Local (Fast & Free)</option>
+                                                <option value="openai">OpenAI Audio Models</option>
+                                                <option value="google" selected>Google Gemini (LLM)</option>
+                                                <option value="xai">xAI Speech to Text</option>
+                                                <option value="cohere">Cohere Transcribe</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group" id="group-transcription-model">
+                                        <label for="transcription-model">Transcription Model</label>
+                                        <div class="select-wrapper">
+                                            <select id="transcription-model" name="transcription_model"></select>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group" id="group-timing-anchor-provider" style="display: none;">
+                                        <label for="timing-anchor-provider">Timing Anchor Provider</label>
+                                        <div class="select-wrapper">
+                                            <select id="timing-anchor-provider" name="timing_anchor_provider">
+                                                <option value="openai" selected>OpenAI Whisper API (Cloud, ~10s, ~3¢)</option>
+                                                <option value="local">Local Whisper (Free, CPU/GPU)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group" id="group-model-size" style="display: none;">
+                                        <label for="model-size">Local Model Size</label>
+                                        <div class="select-wrapper">
+                                            <select id="model-size" name="model_size">
+                                                <option value="tiny">Tiny (Fastest, lowest accuracy)</option>
+                                                <option value="base">Base</option>
+                                                <option value="small" selected>Small (Balanced - Recommended)</option>
+                                                <option value="medium">Medium</option>
+                                                <option value="large-v3">Large V3 (Most accurate, slow)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group" id="group-timing-mode">
+                                        <label for="timing-mode">Timing Sync Mode</label>
+                                        <div class="select-wrapper">
+                                            <select id="timing-mode" name="api_transcript_timing_mode">
+                                                <option value="precise" selected>Precise (recommended alignment)</option>
+                                                <option value="fuzzy">Fuzzy (Whisper native word timestamps)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="translation-provider">Translation Provider</label>
+                                        <div class="select-wrapper">
+                                            <select id="translation-provider" name="translation_provider">
+                                                <option value="local">Local MarianMT (Offline, Free)</option>
+                                                <option value="openai" selected>OpenAI (GPT-4o / GPT-4o-mini)</option>
+                                                <option value="google">Google Gemini (Flash / Pro)</option>
+                                                <option value="deepseek">DeepSeek API</option>
+                                                <option value="anthropic">Anthropic Claude</option>
+                                                <option value="xai">xAI Grok</option>
+                                                <option value="cohere">Cohere Command</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group" id="group-translation-model">
+                                        <label for="translation-model">Translation Model</label>
+                                        <div class="select-wrapper">
+                                            <select id="translation-model" name="translation_model"></select>
+                                        </div>
+                                    </div>
+
+                                    <div class="pipeline-plan-preview" id="pipeline-plan-preview" aria-live="polite">
+                                        <div class="pipeline-plan-heading">
+                                            <i data-lucide="route"></i>
+                                            <span id="pipeline-plan-title">Selecting best pipeline...</span>
+                                        </div>
+                                        <ol id="pipeline-plan-stages"></ol>
+                                        <p class="pipeline-plan-error" id="pipeline-plan-error" hidden></p>
+                                    </div>
+
+
+                                    <div class="form-group subtitle-mode-field">
+                                        <label id="subtitle-mode-label">Subtitle Format</label>
+                                        <div class="subtitle-mode-control" role="radiogroup" aria-labelledby="subtitle-mode-label">
+                                            <label>
+                                                <input type="radio" name="subtitle_mode" value="auto" checked>
+                                                <span>Auto</span>
+                                            </label>
+                                            <label>
+                                                <input type="radio" name="subtitle_mode" value="normal">
+                                                <span>Normal</span>
+                                            </label>
+                                            <label>
+                                                <input type="radio" name="subtitle_mode" value="tiktok">
+                                                <span>TikTok</span>
+                                            </label>
+                                        </div>
+                                        <p class="subtitle-mode-help">Auto selects short one-line cues for portrait video and normal cues for other formats.</p>
+                                    </div>
+
+                                    <button type="button" class="btn btn-primary btn-lg w-full mt-6" id="btn-start-process" disabled>
+                                        <span>Start Subtitle Generation</span>
+                                        <i data-lucide="arrow-right"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- TAB 2: GOOGLE DRIVE BATCH -->
+                <section class="tab-panel" id="panel-batch">
+                    <div class="batch-layout">
+                        <section class="batch-control-band">
+                            <header class="batch-section-header">
+                                <div>
+                                    <span class="section-kicker">Google Drive</span>
+                                    <h2>Folder Batch</h2>
+                                </div>
+                                <div class="drive-connection-state" id="drive-connection-state">
+                                    <span class="status-indicator"></span>
+                                    <span>Not connected</span>
+                                </div>
+                            </header>
+
+                            <div class="drive-auth-panel" id="drive-auth-panel">
+                                <div class="form-group drive-client-path-group" id="drive-client-path-group">
+                                    <label for="drive-client-json-path">Google OAuth desktop client JSON</label>
+                                    <div class="input-action-row">
+                                        <input class="text-input" id="drive-client-json-path" type="text" placeholder="C:\\Users\\...\\client_secret.json" spellcheck="false">
+                                        <button class="btn btn-icon btn-secondary" id="btn-drive-browse-client" type="button" title="Select OAuth client JSON"><i data-lucide="folder-open"></i></button>
+                                        <button class="btn btn-secondary" id="btn-drive-configure" type="button"><i data-lucide="file-key-2"></i> Configure</button>
+                                    </div>
+                                </div>
+                                <div class="drive-auth-actions">
+                                    <button class="btn btn-primary" id="btn-drive-connect" type="button"><i data-lucide="log-in"></i> Connect Drive</button>
+                                    <button class="btn btn-secondary" id="btn-drive-disconnect" type="button" hidden><i data-lucide="unlink"></i> Disconnect</button>
+                                </div>
+                                <p class="form-message" id="drive-auth-message" hidden></p>
+                            </div>
+
+                            <div class="batch-form-grid">
+                                <div class="form-group batch-source-field">
+                                    <label for="drive-source-folder">Source Drive folder</label>
+                                    <input class="text-input" id="drive-source-folder" type="url" placeholder="https://drive.google.com/drive/folders/..." spellcheck="false">
+                                </div>
+                                <div class="form-group">
+                                    <label for="drive-destination-folder">Destination parent folder <span class="muted">(optional)</span></label>
+                                    <input class="text-input" id="drive-destination-folder" type="url" placeholder="Source folder when empty" spellcheck="false">
+                                </div>
+                                <div class="form-group">
+                                    <label for="drive-batch-target-language">Target language</label>
+                                    <div class="select-wrapper">
+                                        <select id="drive-batch-target-language"></select>
+                                    </div>
+                                </div>
+                                <div class="batch-pipeline-summary" id="drive-batch-pipeline-summary"></div>
+                            </div>
+
+                            <div class="batch-primary-actions">
+                                <button class="btn btn-secondary" id="btn-drive-inspect" type="button"><i data-lucide="scan-search"></i> Inspect Folder</button>
+                                <button class="btn btn-primary" id="btn-drive-start" type="button" disabled><i data-lucide="play"></i> Start Batch</button>
+                            </div>
+                            <p class="form-message" id="drive-folder-message" hidden></p>
+                        </section>
+
+                        <section class="batch-queue-section">
+                            <header class="batch-section-header">
+                                <div>
+                                    <span class="section-kicker">Queue</span>
+                                    <h2 id="drive-batch-title">No folder inspected</h2>
+                                </div>
+                                <div class="batch-summary-counts" id="drive-batch-counts"></div>
+                            </header>
+                            <div class="batch-progress-track" aria-hidden="true"><span id="drive-batch-progress"></span></div>
+                            <div class="batch-queue" id="drive-batch-queue">
+                                <div class="batch-empty-state"><i data-lucide="folder-open"></i><span>Select a Drive folder to build the queue.</span></div>
+                            </div>
+                            <footer class="batch-footer-actions">
+                                <a class="btn btn-secondary" id="drive-output-link" href="#" target="_blank" rel="noreferrer" hidden><i data-lucide="external-link"></i> Open Output Folder</a>
+                                <button class="btn btn-secondary" id="btn-drive-resume" type="button" hidden><i data-lucide="rotate-ccw"></i> Resume Failed</button>
+                                <button class="btn btn-secondary danger" id="btn-drive-stop" type="button" hidden><i data-lucide="square"></i> Stop After Current Video</button>
+                            </footer>
+                        </section>
+                    </div>
+                </section>
+
+                <!-- TAB 3: STYLE EDITOR -->
+                <section class="tab-panel" id="panel-style-editor">
+                    <div class="grid-style-editor">
+                        <!-- Styling Controls -->
+                        <div class="card glass-card styling-controls-card">
+                            <div class="card-header flex-between">
+                                <h3 class="card-title"><i data-lucide="sliders" class="icon-violet"></i> Style Customizer</h3>
+                                <div class="preset-selector">
+                                    <div class="select-wrapper select-sm">
+                                        <select id="style-presets">
+                                            <option value="custom">-- Presets --</option>
+                                            <option value="modern-white" selected>Modern White</option>
+                                            <option value="tiktok">TikTok Punchy</option>
+                                            <option value="netflix">Netflix Cinematic</option>
+                                            <option value="glassmorphic">Glassmorphic Box</option>
+                                            <option value="retro-yellow">Retro Yellow</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-body scrollable-controls">
+                                <!-- Typography -->
+                                <div class="control-section-header">Typography</div>
+                                
+                                <div class="form-group">
+                                    <label for="style-font">Font Family</label>
+                                    <div class="select-wrapper">
+                                        <select id="style-font">
+                                            <option value="Arial">Arial (Standard)</option>
+                                            <option value="Outfit">Outfit (Modern Sans)</option>
+                                            <option value="Impact">Impact (TikTok Bold)</option>
+                                            <option value="Trebuchet MS">Trebuchet MS</option>
+                                            <option value="Georgia">Georgia (Serif)</option>
+                                            <option value="Amiri">Amiri (Arabic Style)</option>
+                                            <option value="Courier New">Courier New (Monospace)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <div class="label-val">
+                                        <label for="style-size">Font Size</label>
+                                        <span id="style-size-val">28px</span>
+                                    </div>
+                                    <input type="range" id="style-size" min="12" max="72" value="28" class="range-slider">
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Text Alignment</label>
+                                    <div class="btn-group-row">
+                                        <button type="button" class="btn-toggle" data-align="1">Left</button>
+                                        <button type="button" class="btn-toggle active" data-align="2">Center</button>
+                                        <button type="button" class="btn-toggle" data-align="3">Right</button>
+                                    </div>
+                                </div>
+
+                                <!-- Colors & Borders -->
+                                <div class="control-section-header">Colors & Aesthetics</div>
+
+                                <div class="grid-2col-compact">
+                                    <div class="form-group">
+                                        <label for="style-color-text">Text Color</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" id="style-color-text" value="#ffffff">
+                                            <input type="text" id="style-color-text-hex" value="#ffffff" class="hex-input">
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="style-color-outline">Outline Color</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" id="style-color-outline" value="#000000">
+                                            <input type="text" id="style-color-outline-hex" value="#000000" class="hex-input">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <div class="label-val">
+                                        <label for="style-outline-width">Outline Width</label>
+                                        <span id="style-outline-width-val">1.5px</span>
+                                    </div>
+                                    <input type="range" id="style-outline-width" min="0" max="8" step="0.5" value="1.5" class="range-slider">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="style-border-style">Background Type</label>
+                                    <div class="select-wrapper">
+                                        <select id="style-border-style">
+                                            <option value="3">Opaque Box (ASS Style 3)</option>
+                                            <option value="4">Outline & Shadow (ASS Style 4)</option>
+                                            <option value="1" selected>Outline Only (ASS Style 1)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="form-group" id="group-color-bg">
+                                    <label for="style-color-bg">Background / Box Color</label>
+                                    <div class="color-picker-wrapper">
+                                        <input type="color" id="style-color-bg" value="#000000">
+                                        <div class="flex-grow flex-col ml-2">
+                                            <input type="text" id="style-color-bg-hex" value="#000000" class="hex-input mb-1 w-full">
+                                            <div class="flex items-center">
+                                                <span class="text-xs muted mr-2">Opacity:</span>
+                                                <input type="range" id="style-bg-opacity" min="0" max="100" value="70" class="range-slider-xs">
+                                                <span id="style-bg-opacity-val" class="text-xs ml-1 font-mono">70%</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Layout & Margins -->
+                                <div class="control-section-header">Layout & Margins</div>
+
+                                <div class="form-group">
+                                    <div class="label-val">
+                                        <label for="style-margin-v">Vertical Margin (Bottom)</label>
+                                        <span id="style-margin-v-val">30px</span>
+                                    </div>
+                                    <input type="range" id="style-margin-v" min="10" max="150" value="30" class="range-slider">
+                                </div>
+
+                                <div class="form-group">
+                                    <div class="label-val">
+                                        <label for="style-shadow">Shadow Depth</label>
+                                        <span id="style-shadow-val">1px</span>
+                                    </div>
+                                    <input type="range" id="style-shadow" min="0" max="12" value="1" class="range-slider">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Live Preview Panel -->
+                        <div class="card glass-card preview-card">
+                            <div class="card-header">
+                                <h3 class="card-title"><i data-lucide="eye" class="icon-cyan"></i> Live Subtitle Preview</h3>
+                            </div>
+                            <div class="card-body flex-center flex-col">
+                                <div class="preview-viewport-wrapper">
+                                    <div class="preview-viewport" id="preview-viewport">
+                                        <!-- Placeholder Video Background -->
+                                        <video id="preview-video" class="preview-video-element" loop muted playsinline>
+                                            <source src="" type="video/python-subgen">
+                                        </video>
+                                        <div class="preview-overlay-bg" id="preview-overlay-bg"></div>
+                                        
+                                        <!-- The Subtitle Container -->
+                                        <div class="subtitle-preview-container" id="subtitle-preview-container">
+                                            <div class="subtitle-text-preview" id="subtitle-text-preview">
+                                                This is a live preview of your generated subtitles.
+                                            </div>
+                                        </div>
+
+                                        <!-- Preview Playback Bar -->
+                                        <div class="preview-player-controls">
+                                            <button class="btn btn-icon btn-trans" id="preview-btn-play">
+                                                <i data-lucide="play" class="w-5 h-5"></i>
+                                            </button>
+                                            <div class="preview-progress-bar-container">
+                                                <div class="preview-progress-bar" id="preview-playback-progress" style="width: 35%;"></div>
+                                            </div>
+                                            <span class="preview-time font-mono text-xs">00:14.200</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <p class="muted text-center mt-4 text-xs max-w-md">
+                                    The preview simulates how the subtitles will look when burned. Select a preset or customize individual parameters.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- TAB 3: PROGRESS & LOGS -->
+                <section class="tab-panel" id="panel-progress">
+                    <div class="grid-2col">
+                        <!-- Progress Card -->
+                        <div class="card glass-card progress-tracking-card">
+                            <div class="card-header">
+                                <h3 class="card-title"><i data-lucide="activity" class="icon-violet"></i> Processing Progress</h3>
+                            </div>
+                            <div class="card-body flex-center flex-col py-8">
+                                <div class="progress-radial-container">
+                                    <svg class="progress-radial" viewBox="0 0 120 120">
+                                        <circle class="progress-radial-bg" cx="60" cy="60" r="54"></circle>
+                                        <circle class="progress-radial-bar" id="radial-progress-bar" cx="60" cy="60" r="54" style="stroke-dashoffset: 339.292;"></circle>
+                                    </svg>
+                                    <div class="progress-radial-text">
+                                        <span class="progress-percent" id="progress-percentage">0%</span>
+                                        <span class="progress-status-text muted" id="progress-status-label">Queued</span>
+                                    </div>
+                                </div>
+
+                                <div class="pipeline-stages-list mt-8 w-full max-w-md">
+                                    <div class="stage-item pending" id="stage-transcription">
+                                        <div class="stage-status-icon">
+                                            <i data-lucide="circle" class="icon-pending"></i>
+                                            <i data-lucide="loader-2" class="icon-running spin" style="display: none;"></i>
+                                            <i data-lucide="check-circle-2" class="icon-success" style="display: none;"></i>
+                                        </div>
+                                        <div class="stage-details">
+                                            <span class="stage-name">Audio Transcription</span>
+                                            <span class="stage-desc muted">Transcribing audio track into text segments.</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="stage-item pending" id="stage-alignment">
+                                        <div class="stage-status-icon">
+                                            <i data-lucide="circle" class="icon-pending"></i>
+                                            <i data-lucide="loader-2" class="icon-running spin" style="display: none;"></i>
+                                            <i data-lucide="check-circle-2" class="icon-success" style="display: none;"></i>
+                                        </div>
+                                        <div class="stage-details">
+                                            <span class="stage-name">Forced Word Alignment</span>
+                                            <span class="stage-desc muted">Aligning words precisely to timeline timestamps.</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="stage-item pending" id="stage-translation">
+                                        <div class="stage-status-icon">
+                                            <i data-lucide="circle" class="icon-pending"></i>
+                                            <i data-lucide="loader-2" class="icon-running spin" style="display: none;"></i>
+                                            <i data-lucide="check-circle-2" class="icon-success" style="display: none;"></i>
+                                        </div>
+                                        <div class="stage-details">
+                                            <span class="stage-name">Subtitle Translation</span>
+                                            <span class="stage-desc muted">Translating subtitles to target language.</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="stage-item pending" id="stage-burning">
+                                        <div class="stage-status-icon">
+                                            <i data-lucide="circle" class="icon-pending"></i>
+                                            <i data-lucide="loader-2" class="icon-running spin" style="display: none;"></i>
+                                            <i data-lucide="check-circle-2" class="icon-success" style="display: none;"></i>
+                                        </div>
+                                        <div class="stage-details">
+                                            <span class="stage-name">Burning Subtitles</span>
+                                            <span class="stage-desc muted">Hardcoding subtitle styles into the final video file.</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Console Logs Card -->
+                        <div class="card glass-card logs-card">
+                            <div class="card-header flex-between">
+                                <h3 class="card-title"><i data-lucide="terminal" class="icon-cyan"></i> Console Logs</h3>
+                                <button class="btn btn-xs btn-secondary" id="btn-copy-logs">
+                                    <i data-lucide="copy" class="w-3.5 h-3.5 mr-1"></i> Copy
+                                </button>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="log-stream-console" id="log-console">
+                                    <div class="log-line system">[SYSTEM] Ready. Upload a video and start processing.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- TAB 3b: API SETTINGS & CONFIG -->
+                <section class="tab-panel" id="panel-config">
+                    <div class="setup-banner" id="setup-banner" hidden>
+                        <div class="setup-banner-icon"><i data-lucide="key-round"></i></div>
+                        <div>
+                            <h2>Connect your providers</h2>
+                            <p>Add at least a Gemini or OpenAI key to begin. Credentials are stored in your operating-system credential locker in the installed app.</p>
+                        </div>
+                    </div>
+                    <div class="grid-2col">
+                        <!-- Left column: Add/Update API Key for any provider -->
+                        <div class="card glass-card">
+                            <div class="card-header">
+                                <h3 class="card-title"><i data-lucide="key" class="icon-violet"></i> Add / Update API Key</h3>
+                            </div>
+                            <div class="card-body">
+                                <p class="muted mb-4">Add or update API keys for any translation and transcription provider. You can save multiple keys under different profile names, such as <code>default</code>, <code>work</code>, or <code>backup</code>.</p>
+                                
+                                <form id="form-save-api-key" class="mt-2">
+                                    <div class="form-group">
+                                        <label for="save-provider-select">API Provider</label>
+                                        <div class="select-wrapper">
+                                            <select id="save-provider-select">
+                                                <option value="openai">OpenAI (Whisper / GPT)</option>
+                                                <option value="google">Google Gemini</option>
+                                                <option value="deepseek">DeepSeek</option>
+                                                <option value="anthropic">Anthropic Claude</option>
+                                                <option value="xai">xAI</option>
+                                                <option value="cohere">Cohere</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                         <label for="save-profile-name">Key Name / Profile (lowercase, e.g., "default", "work")</label>
+                                         <input type="text" id="save-profile-name" value="default" placeholder="e.g. default" required class="text-input" pattern="[a-z0-9_-]+">
+                                     </div>
+                                    <div class="form-group">
+                                        <label for="save-api-key-val">API Key</label>
+                                        <input type="password" id="save-api-key-val" placeholder="Paste your API key here" autocomplete="new-password" spellcheck="false" required class="text-input">
+                                    </div>
+                                    <button type="submit" class="btn btn-primary w-full">
+                                        <i data-lucide="save" class="mr-2"></i> Save Key Configuration
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <!-- Right column: Select Active Keys -->
+                        <div class="card glass-card">
+                            <div class="card-header">
+                                <h3 class="card-title"><i data-lucide="users" class="icon-cyan"></i> Manage & Select Active Keys</h3>
+                            </div>
+                            <div class="card-body">
+                                <p class="muted mb-6">Select which API key/profile is currently active for each provider. The active key will be used when running the pipeline.</p>
+                                
+                                <div class="api-providers-container" id="api-providers-container">
+                                    <!-- Dynamic list of providers and their keys goes here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <section class="model-guide-section" aria-labelledby="model-guide-title">
+                        <header class="model-guide-header">
+                            <div>
+                                <span class="section-kicker">Provider guide</span>
+                                <h2 id="model-guide-title">Model &amp; API Capabilities</h2>
+                                <p>Compare the outputs SubGen can use before choosing an API provider.</p>
+                            </div>
+                            <div class="model-guide-legend" aria-label="Capability legend">
+                                <span><i data-lucide="circle-check" class="capability-icon capability-icon-yes"></i> Available</span>
+                                <span><i data-lucide="circle-x" class="capability-icon capability-icon-no"></i> Not available</span>
+                            </div>
+                        </header>
+
+                        <div class="model-guide-toolbar">
+                            <div class="model-guide-search">
+                                <i data-lucide="search"></i>
+                                <input id="model-guide-search" type="search" placeholder="Search provider or model" aria-label="Search provider or model">
+                            </div>
+                            <div class="select-wrapper model-guide-provider-filter">
+                                <select id="model-guide-provider" aria-label="Filter models by provider">
+                                    <option value="all">All providers</option>
+                                </select>
+                            </div>
+                            <div class="segmented-control model-guide-kind-filter" role="group" aria-label="Filter models by capability">
+                                <button type="button" class="active" data-model-kind="all" aria-pressed="true">All</button>
+                                <button type="button" data-model-kind="transcription" aria-pressed="false">Transcription</button>
+                                <button type="button" data-model-kind="translation" aria-pressed="false">Translation</button>
+                            </div>
+                        </div>
+
+                        <div class="model-guide-table-shell" tabindex="0" aria-label="Scrollable model capability comparison">
+                            <table class="model-guide-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Provider &amp; model</th>
+                                        <th scope="col"><abbr title="Semantic language model or GPT-powered speech model">Semantic AI</abbr></th>
+                                        <th scope="col">Transcript</th>
+                                        <th scope="col">Word time</th>
+                                        <th scope="col">Segment time</th>
+                                        <th scope="col">Mixed language</th>
+                                        <th scope="col">Speakers</th>
+                                        <th scope="col">Translation</th>
+                                        <th scope="col">In SubGen</th>
+                                        <th scope="col">Official links</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="model-guide-body"></tbody>
+                            </table>
+                        </div>
+                        <p class="model-guide-empty" id="model-guide-empty" hidden>No models match this filter.</p>
+                    </section>
+                </section>
+
+                <!-- TAB 4: INTERACTIVE EDITOR -->
+                <section class="tab-panel" id="panel-editor">
+                    <div class="editor-workspace">
+                        <header class="editor-toolbar">
+                            <div class="editor-toolbar-title">
+                                <h2>Review & Edit</h2>
+                                <span class="editor-save-state" id="editor-save-state">Saved</span>
+                            </div>
+                            <div class="editor-toolbar-actions">
+                                <button class="btn btn-icon btn-secondary" id="btn-editor-undo" title="Undo" disabled><i data-lucide="undo-2"></i></button>
+                                <button class="btn btn-icon btn-secondary" id="btn-editor-redo" title="Redo" disabled><i data-lucide="redo-2"></i></button>
+                                <button class="btn btn-secondary" id="btn-editor-insert"><i data-lucide="plus"></i> Add Cue</button>
+                                <button class="btn btn-secondary" id="btn-retranslate-selected"><i data-lucide="languages"></i> Retranslate Selected</button>
+                                <button class="btn btn-secondary" id="btn-approve-draft"><i data-lucide="badge-check"></i> Approve Draft</button>
+                                <button class="btn btn-primary" id="btn-burn-final" disabled><i data-lucide="flame"></i> Burn Approved</button>
+                            </div>
+                        </header>
+
+                        <div class="editor-main-grid">
+                            <section class="editor-preview-pane">
+                                <div class="editor-video-wrapper">
+                                    <video id="editor-video" class="editor-video-element" controls>
+                                        <source src="" type="video/mp4">
+                                        Your browser does not support the video tag.
+                                    </video>
+                                    <div class="editor-subtitle-overlay" id="editor-subtitle-overlay">
+                                        <span id="editor-subtitle-overlay-text">Subtitles will display here in sync.</span>
+                                    </div>
+                                </div>
+
+                                <div class="editor-timeline" id="editor-timeline">
+                                    <div class="timeline-header">
+                                        <span id="timeline-current-time" class="font-mono">00:00:00,000</span>
+                                        <span id="timeline-duration" class="font-mono muted">00:00:00,000</span>
+                                    </div>
+                                    <div class="waveform-stage" id="waveform-stage">
+                                        <canvas id="editor-waveform" aria-label="Audio waveform"></canvas>
+                                        <div class="timeline-cues" id="timeline-cues"></div>
+                                        <div class="timeline-playhead" id="timeline-playhead"></div>
+                                    </div>
+                                </div>
+
+                                <div class="editor-quality" id="editor-quality">
+                                    <div class="quality-summary">
+                                        <i data-lucide="shield-check"></i>
+                                        <span id="editor-quality-summary">No timing errors</span>
+                                        <select id="editor-issue-filter" aria-label="Filter review issues">
+                                            <option value="all">All issues</option>
+                                            <option value="critical">Critical</option>
+                                            <option value="warning">Warnings</option>
+                                            <option value="clean">Clean</option>
+                                        </select>
+                                    </div>
+                                    <div class="quality-issues" id="editor-quality-issues"></div>
+                                </div>
+                            </section>
+
+                            <section class="editor-cues-pane">
+                                <div class="editor-cues-header">
+                                    <div>
+                                        <h3>Subtitle Cues</h3>
+                                        <span class="muted"><span id="segment-count">0</span> cues</span>
+                                    </div>
+                                    <div class="search-wrapper">
+                                        <i data-lucide="search" class="search-icon"></i>
+                                        <input type="text" id="editor-search" placeholder="Search source or translation" class="search-input">
+                                    </div>
+                                </div>
+                                <div class="segments-scroll-container" id="segments-container">
+                                    <div class="empty-state py-12 text-center">
+                                        <i data-lucide="edit-3" class="w-12 h-12 mx-auto muted mb-3"></i>
+                                        <h4>No segments loaded</h4>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- TAB 5: EXPORT / DOWNLOAD -->
+                <section class="tab-panel" id="panel-export">
+                    <div class="card glass-card max-w-3xl mx-auto py-8">
+                        <div class="card-body flex-center flex-col text-center">
+                            <div class="success-animation mb-6">
+                                <div class="success-icon-ring">
+                                    <i data-lucide="check" class="success-icon"></i>
+                                </div>
+                            </div>
+
+                            <h2 class="text-2xl font-bold mb-2">Generation Completed!</h2>
+                            <p class="muted max-w-md mb-8">
+                                Your subtitles have been successfully generated, translated, and burned into the video.
+                            </p>
+
+                            <!-- Final Video Player -->
+                            <div class="final-video-preview-wrapper mb-8 w-full max-w-xl">
+                                <video id="final-video" class="final-video-element" controls>
+                                    <source src="" type="video/mp4">
+                                </video>
+                            </div>
+
+                            <div class="flex-row-gap mt-4 w-full max-w-md">
+                                <a id="btn-download-video" href="#" download class="btn btn-primary btn-lg flex-grow">
+                                    <i data-lucide="download" class="mr-2"></i> Download Video
+                                </a>
+                                <a id="btn-download-srt" href="#" download class="btn btn-secondary btn-lg flex-grow">
+                                    <i data-lucide="file-text" class="mr-2"></i> Download SRT
+                                </a>
+                            </div>
+
+                            <button class="btn btn-link mt-8" id="btn-restart">
+                                <i data-lucide="rotate-ccw" class="mr-2"></i> Process Another Video
+                            </button>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+    <div class="cache-action-modal" id="cache-action-modal" hidden>
+        <div class="cache-action-backdrop" data-cache-action-cancel></div>
+        <section class="cache-action-dialog" role="dialog" aria-modal="true" aria-labelledby="cache-action-title">
+            <div class="cache-action-header">
+                <div>
+                    <h2 id="cache-action-title">Existing Video Cache</h2>
+                    <p>Choose exactly which stages to reuse.</p>
+                </div>
+                <button type="button" class="btn btn-icon btn-trans" data-cache-action-cancel aria-label="Cancel">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <div class="cache-action-list">
+                <button type="button" class="cache-action-option" data-cache-action="reuse_all">
+                    <i data-lucide="archive-restore"></i>
+                    <span><strong>Reuse Everything</strong><small>Reuse Gemini text, source timing, translation, and existing video when compatible.</small></span>
+                </button>
+                <button type="button" class="cache-action-option" data-cache-action="reburn">
+                    <i data-lucide="film"></i>
+                    <span><strong>Burn Video Again</strong><small>Reuse Gemini text, source timing, and translation; regenerate the output video.</small></span>
+                </button>
+                <button type="button" class="cache-action-option" data-cache-action="retime">
+                    <i data-lucide="audio-lines"></i>
+                    <span><strong>Regenerate Timing & Downstream</strong><small>Reuse Gemini text; rerun OpenAI Whisper-1 timing anchors, WhisperX alignment, source SRT, translation, and video burn.</small></span>
+                </button>
+                <button type="button" class="cache-action-option cache-action-option-danger" data-cache-action="regenerate_all">
+                    <i data-lucide="refresh-cw"></i>
+                    <span><strong>Regenerate Everything</strong><small>Rerun Gemini and every subsequent source, translation, and video stage.</small></span>
+                </button>
+            </div>
+        </section>
+    </div>
+    <div class="mobile-access-modal" id="mobile-access-modal" hidden>
+        <div class="mobile-access-backdrop" data-mobile-access-close></div>
+        <section class="mobile-access-dialog" role="dialog" aria-modal="true" aria-labelledby="mobile-access-title">
+            <header class="mobile-access-header">
+                <div>
+                    <h2 id="mobile-access-title">Connect Your Phone</h2>
+                    <p>Use a phone on the same private Wi-Fi network.</p>
+                </div>
+                <button type="button" class="btn btn-icon btn-trans" data-mobile-access-close aria-label="Close">
+                    <i data-lucide="x"></i>
+                </button>
+            </header>
+            <div class="mobile-access-body">
+                <div class="mobile-qr-frame">
+                    <img id="mobile-access-qr" alt="SubGen mobile pairing QR code">
+                </div>
+                <div class="mobile-access-details">
+                    <div class="mobile-access-state">
+                        <span class="status-indicator online"></span>
+                        <span id="mobile-access-state">Ready to pair</span>
+                    </div>
+                    <div class="mobile-platform-picker" role="group" aria-label="Phone type">
+                        <button type="button" class="mobile-platform-option active" data-mobile-platform="ios" aria-pressed="true">
+                            <i data-lucide="tablet-smartphone"></i><span>iPhone / iPad</span>
+                        </button>
+                        <button type="button" class="mobile-platform-option" data-mobile-platform="android" aria-pressed="false">
+                            <i data-lucide="smartphone"></i><span>Android</span>
+                        </button>
+                    </div>
+                    <p class="mobile-platform-help" id="mobile-platform-help"></p>
+                    <p class="mobile-device-status" id="mobile-device-status" hidden></p>
+                    <label for="mobile-network-select" id="mobile-network-label" hidden>Network</label>
+                    <select id="mobile-network-select" class="select-input" hidden></select>
+                    <label for="mobile-access-url">Mobile address</label>
+                    <div class="mobile-url-row">
+                        <input id="mobile-access-url" type="text" readonly>
+                        <button type="button" class="btn btn-icon btn-secondary" id="btn-copy-mobile-url" title="Copy pairing link">
+                            <i data-lucide="copy"></i>
+                        </button>
+                    </div>
+                    <p class="mobile-access-note">The QR contains a private access token. Only share it with devices you trust.</p>
+                    <p class="mobile-access-note">Keep both devices on the same private Wi-Fi. If a VPN is active, it must allow local-network traffic.</p>
+                    <div class="mobile-access-issues" id="mobile-access-issues" hidden></div>
+                    <div class="mobile-access-actions">
+                        <button type="button" class="btn btn-primary" id="btn-repair-mobile-access" hidden>
+                            <i data-lucide="shield-check"></i> Repair Windows Access
+                        </button>
+                        <button type="button" class="btn btn-secondary" id="btn-refresh-mobile-access">
+                            <i data-lucide="refresh-cw"></i> New Access Token
+                        </button>
+                    </div>
+                </div>
+                <div class="mobile-access-unavailable" id="mobile-access-unavailable" hidden>
+                    <i data-lucide="wifi-off"></i>
+                    <p>No private network address was detected. Connect this computer and phone to the same Wi-Fi network.</p>
+                </div>
+            </div>
+        </section>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

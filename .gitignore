@@ -1,0 +1,90 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.egg-info/
+.env
+subgen_config.json
+.hf_cache/
+.model_cache/
+models/
+*.db
+subgen.db
+mobile_access_token
+google_drive_client.json
+google_drive_token.json
+drive_batches/
+uploads/
+jobs/
+.cursorrules
+.playwright-cli/
+
+# Generated subtitle files
+*.wav
+*.srt
+*.api_transcript.txt
+*.manifest.json
+*.segments.json
+*.merged_timing_segments.json
+*_subtitled.mp4
+*_api_transcription_chunks/
+*_timing_anchor_chunks/
+*_visual_style_frames/
+*_visual_style_previews/
+
+# Video files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.flv
+*.wmv
+*.webm
+*.m4v
+
+# Audio files
+*.mp3
+*.m4a
+*.aac
+*.ogg
+*.flac
+
+# Image files
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.svg
+*.webp
+
+# Desktop application icons are source assets, not generated content.
+!desktop/src-tauri/icons/
+!desktop/src-tauri/icons/**
+!desktop/ui/app-icon.png
+!web/assets/
+!web/assets/app-icon.png
+
+# Downloaded/test content
+test/
+photos/
+
+# Desktop build output
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/resources/backend/
+desktop/src-tauri/resources/ffmpeg/
+desktop/src-tauri/resources/licenses/
+dist/
+dist-cloud-web/
+build/
+output/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

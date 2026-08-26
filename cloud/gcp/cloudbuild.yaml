@@ -1,0 +1,14 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: [build, -f, cloud/Dockerfile, -t, '${_REGION}-docker.pkg.dev/${PROJECT_ID}/subgen/api:${_TAG}', .]
+  - name: gcr.io/cloud-builders/docker
+    args: [build, -f, cloud/Dockerfile.worker, -t, '${_REGION}-docker.pkg.dev/${PROJECT_ID}/subgen/worker:${_TAG}', .]
+images:
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/subgen/api:${_TAG}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/subgen/worker:${_TAG}'
+substitutions:
+  _REGION: europe-west1
+  _TAG: latest
+timeout: 3600s
+options:
+  logging: CLOUD_LOGGING_ONLY

@@ -1,0 +1,46 @@
+name: Windows Installer
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install FFmpeg
+        shell: pwsh
+        run: choco install ffmpeg -y --no-progress
+
+      - name: Build SubGen installer
+        shell: pwsh
+        run: ./packaging/build-windows.ps1 -Python python
+
+      - name: Publish frozen WhisperX smoke-test report
+        uses: actions/upload-artifact@v4
+        with:
+          name: SubGen-WhisperX-Smoke-Test
+          path: build/whisperx-frozen-smoke.json
+          if-no-files-found: error
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: SubGen-Windows-Installer
+          path: desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
