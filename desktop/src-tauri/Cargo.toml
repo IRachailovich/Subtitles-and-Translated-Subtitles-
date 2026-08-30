@@ -1,6 +1,6 @@
 [package]
 name = "subgen-desktop"
-version = "0.4.2"
+version = "0.4.3"
 description = "SubGen desktop subtitle studio"
 authors = ["SubGen"]
 edition = "2021"

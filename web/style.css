@@ -1943,12 +1943,17 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 .editor-preview-pane {
-    display: grid;
-    align-content: start;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
     gap: 14px;
     padding: 16px;
     overflow-y: auto;
     border-right: 1px solid var(--card-border);
+}
+
+.editor-preview-pane > * {
+    flex: 0 0 auto;
 }
 
 .editor-video-wrapper {
@@ -2061,6 +2066,7 @@ input[type="color"]::-webkit-color-swatch {
 
 .quality-issue {
     display: flex;
+    align-items: center;
     gap: 8px;
     padding: 7px 9px;
     border: 0;
@@ -2069,6 +2075,48 @@ input[type="color"]::-webkit-color-swatch {
     color: #fbbf24;
     text-align: left;
     cursor: pointer;
+}
+
+.quality-issue .issue-jump {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+}
+
+.quality-issue .issue-copy {
+    display: grid;
+    gap: 4px;
+}
+
+.quality-issue .issue-evidence {
+    color: var(--text-secondary);
+    font-size: 10px;
+    line-height: 1.35;
+}
+
+.quality-issue .issue-resolve,
+.quality-issue .issue-status {
+    flex: 0 0 auto;
+}
+
+.quality-issue.resolved {
+    opacity: 0.72;
+}
+
+.quality-issue .issue-status {
+    padding: 4px 7px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
 }
 
 .quality-issue.error {

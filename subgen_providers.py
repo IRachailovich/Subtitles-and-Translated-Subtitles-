@@ -398,6 +398,7 @@ def call_google_transcription(
     prompt_version=CURRENT_PRODUCTION_PROMPT_VERSION,
     request_timeout_seconds=600,
     diagnostic_output_dir=None,
+    allow_empty=False,
 ):
     provider, api_key = require_provider_key(config, "google")
     audio_path = Path(audio_path)
@@ -456,19 +457,25 @@ def call_google_transcription(
     )
     _persist_gemini_raw_response(diagnostic_output_dir, response)
     candidates = response.get("candidates") or []
+    usage = gemini_transcription_response_metadata(response, identity)
+    usage["max_output_tokens"] = payload["generationConfig"]["maxOutputTokens"]
+    usage["output_token_limit_strategy"] = output_limit_strategy
+    usage["temperature"] = selected_temperature
+    usage.update(gemini_transcription_request_metadata(prompt_version))
     if not candidates:
+        if allow_empty:
+            usage["finish_reason"] = None
+            return "", usage
         raise RuntimeError("Google transcription response did not contain a candidate.")
     candidate = candidates[0]
     parts = (candidate.get("content") or {}).get("parts") or []
     text = "".join(part.get("text", "") for part in parts if isinstance(part, dict)).strip()
     if not text:
+        if allow_empty:
+            usage["finish_reason"] = candidate.get("finishReason")
+            return "", usage
         raise RuntimeError("Google transcription response did not contain transcript text.")
-    usage = gemini_transcription_response_metadata(response, identity)
     usage["finish_reason"] = candidate.get("finishReason")
-    usage["max_output_tokens"] = payload["generationConfig"]["maxOutputTokens"]
-    usage["output_token_limit_strategy"] = output_limit_strategy
-    usage["temperature"] = selected_temperature
-    usage.update(gemini_transcription_request_metadata(prompt_version))
     return text, usage
 
 

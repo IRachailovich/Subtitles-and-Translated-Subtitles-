@@ -20,8 +20,12 @@ def main():
         subprocess.run([sys.executable, str(server_path)], check=True)
     except KeyboardInterrupt:
         print("\nSubGen Web Interface stopped.")
+    except subprocess.CalledProcessError as e:
+        print("SubGen Web Interface did not start. See the server message above.")
+        raise SystemExit(e.returncode or 1)
     except Exception as e:
         print(f"Error launching server: {e}")
+        raise SystemExit(1)
 
 if __name__ == "__main__":
     main()

@@ -656,6 +656,9 @@ def begin_burn(review, source_path=None, *, source_hash=None):
 
 
 def complete_burn(review, subtitle_path, video_path):
+    burn_record = review.get("burn")
+    if review.get("state") != "BURNING" or not isinstance(burn_record, dict):
+        raise ValueError("Burn completion requires a burn lifecycle started by begin_burn")
     approved_hash = review.get("approval", {}).get("approved_draft_hash")
     burned_hash = sha256_file(subtitle_path)
     if burned_hash != approved_hash:
@@ -664,7 +667,7 @@ def complete_burn(review, subtitle_path, video_path):
         raise ValueError("Burned subtitle hash does not match approved draft hash")
     video_hash = sha256_file(video_path)
     review["state"] = "COMPLETED"
-    review["burn"].update({"completed_at": utc_now(), "burned_subtitle_hash": burned_hash, "video_hash": video_hash})
+    burn_record.update({"completed_at": utc_now(), "burned_subtitle_hash": burned_hash, "video_hash": video_hash})
     review["final_artifacts"] = [
         {"kind": "approved_srt", "path": str(subtitle_path), "sha256": burned_hash},
         {"kind": "output_video", "path": str(video_path), "sha256": video_hash},

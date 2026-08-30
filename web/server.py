@@ -4,11 +4,13 @@ import json
 import urllib.parse
 import threading
 import http.server
+import socket
 import socketserver
 import uuid
 import shutil
 import argparse
 import io
+import math
 import time
 from copy import deepcopy
 from pathlib import Path
@@ -42,6 +44,28 @@ def _write_stream_safely(stream, message):
         pass
 
 
+def _json_safe_payload(value):
+    """Return JSON-standard data without NaN or infinite numeric literals."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: _json_safe_payload(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe_payload(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        return [_json_safe_payload(item) for item in value]
+    return value
+
+
+def _json_response_bytes(payload):
+    return json.dumps(
+        _json_safe_payload(payload),
+        ensure_ascii=False,
+        allow_nan=False,
+        default=str,
+    ).encode("utf-8")
+
+
 _configure_utf8_stream(sys.stdout)
 _configure_utf8_stream(sys.stderr)
 
@@ -49,7 +73,7 @@ _configure_utf8_stream(sys.stderr)
 PARENT_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(PARENT_DIR))
 
-from subgen_paths import CONFIG_PATH, ENV_PATH, MOBILE_TOKEN_PATH, UPLOADS_DIR
+from subgen_paths import DATA_DIR, CONFIG_PATH, ENV_PATH, MOBILE_TOKEN_PATH, UPLOADS_DIR
 from subgen_version import __version__
 from subgen_drive import (
     DriveAuthorization,
@@ -88,6 +112,7 @@ try:
         init_db,
         create_job,
         update_job_status,
+        get_job_status,
         calculate_video_hash,
         get_subtitle_draft,
         save_subtitle_draft,
@@ -110,6 +135,10 @@ try:
     import subgen_providers
 
     PIPELINE_DEFAULT_CONFIG = deepcopy(CONFIG)
+    IMPLEMENTATION_CONTROLLED_CONFIG_KEYS = {
+        "longform_pipeline_version",
+        "timing_alignment_version",
+    }
 
     def merged_runtime_config(user_config):
         """Overlay persisted user choices without losing newer source defaults."""
@@ -120,6 +149,8 @@ try:
                 legacy_tiktok_style=user_config.get("tiktok_style", False)
             )
         merged.update(user_config)
+        for key in IMPLEMENTATION_CONTROLLED_CONFIG_KEYS:
+            merged[key] = PIPELINE_DEFAULT_CONFIG[key]
         return merged
 
     # Load CONFIG from subgen_config.json if it exists to get user profiles
@@ -925,6 +956,35 @@ def literal_video_artifacts(directory, base):
     return artifacts
 
 
+FAILURE_DIAGNOSTICS_DIR = DATA_DIR / "failure_diagnostics"
+
+
+def persist_job_failure_diagnostics(job_id, video_path, error):
+    diagnostics = getattr(error, "diagnostics", None)
+    if diagnostics is None:
+        return None
+    FAILURE_DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
+    path = FAILURE_DIAGNOSTICS_DIR / f"{job_id}.json"
+    temporary = path.with_suffix(".json.tmp")
+    record = {
+        "schema": "subgen_job_failure_diagnostics_v1",
+        "job_id": str(job_id),
+        "video_path": str(video_path),
+        "error": {
+            "type": type(error).__name__,
+            "message": str(error),
+        },
+        "diagnostics": diagnostics,
+        "recorded_at_epoch": time.time(),
+    }
+    temporary.write_text(
+        json.dumps(record, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+    return path
+
+
 def run_pipeline_thread(
     job_id,
     video_path,
@@ -1132,12 +1192,34 @@ def run_pipeline_thread(
         add_log("Pipeline completed. Subtitles loaded into editor.", "success")
 
     except Exception as e:
+        failure_diagnostics_path = None
+        try:
+            failure_diagnostics_path = persist_job_failure_diagnostics(
+                job_id,
+                video_path,
+                e,
+            )
+        except Exception as diagnostics_error:
+            add_log(
+                "Could not persist structured failure diagnostics: "
+                f"{diagnostics_error}",
+                "error",
+            )
         with state_lock:
             server_state["status"] = "error"
             server_state["error_message"] = str(e)
             server_state["status_label"] = "Error occurred"
+            server_state["failure_diagnostics_path"] = (
+                str(failure_diagnostics_path)
+                if failure_diagnostics_path else None
+            )
         update_job_status(job_id, "failed", error_message=str(e), status_label="Error occurred")
         add_log(f"Pipeline Thread Error: {e}", "error")
+        if failure_diagnostics_path:
+            add_log(
+                f"Failure diagnostics: {failure_diagnostics_path}",
+                "error",
+            )
         import traceback
         traceback.print_exc()
     finally:
@@ -1358,7 +1440,7 @@ class SubGenRequestHandler(http.server.SimpleHTTPRequestHandler):
         return token_matches(request_token(self.headers), mobile_access["token"])
 
     def send_json(self, payload, status=200):
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        body = _json_response_bytes(payload)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -1591,16 +1673,35 @@ if(!response.ok)throw new Error();state.textContent='Paired. Opening SubGen...';
 
         # API: Status
         if path == '/api/process/status':
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            
+            requested_job_id = (query.get('job_id') or [None])[0]
             with state_lock:
-                # Return state and clear new logs
                 response_data = server_state.copy()
-                server_state["new_logs"] = []
-                
-            self.wfile.write(json.dumps(response_data).encode('utf-8'))
+                active_job_id = server_state.get("job_id")
+                if not requested_job_id or requested_job_id == active_job_id:
+                    # Return state and clear new logs only for the active job.
+                    server_state["new_logs"] = []
+
+            if requested_job_id and requested_job_id != active_job_id:
+                persisted = get_job_status(requested_job_id)
+                if not persisted:
+                    self.send_json({"error": "The requested SubGen job was not found."}, 404)
+                    return
+                persisted_status = str(persisted.get("status") or "pending")
+                response_data = {
+                    "status": "error" if persisted_status == "failed" else persisted_status,
+                    "stage": persisted.get("stage"),
+                    "progress": persisted.get("progress") or 0,
+                    "status_label": persisted.get("status_label") or persisted_status,
+                    "error_message": persisted.get("error_message"),
+                    "video_path": persisted.get("video_path"),
+                    "video_hash": persisted.get("video_hash"),
+                    "job_id": persisted.get("job_id"),
+                    "new_logs": [],
+                    "logs": [],
+                    "recovered_from_job_store": True,
+                }
+
+            self.send_json(response_data)
             return
 
         # API: Config
@@ -1822,10 +1923,7 @@ if(!response.ok)throw new Error();state.textContent='Paired. Opening SubGen...';
                 }
                 if review else get_subtitle_draft(video_hash, target_language)
             )
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({"draft": draft}, ensure_ascii=False).encode('utf-8'))
+            self.send_json({"draft": draft})
             return
 
         # API: Audio waveform used by the subtitle timing editor.
@@ -2766,31 +2864,50 @@ if(!response.ok)throw new Error();state.textContent='Paired. Opening SubGen...';
         self.send_error(404, "Not Found")
 
 class SubGenThreadingServer(socketserver.ThreadingTCPServer):
-    allow_reuse_address = True
+    # A second local server can otherwise bind the same Windows port and split
+    # browser requests across two unrelated in-memory job states.
+    allow_reuse_address = False
     daemon_threads = True
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(
+                socket.SOL_SOCKET,
+                socket.SO_EXCLUSIVEADDRUSE,
+                1,
+            )
+        super().server_bind()
 
 
 def run_server(port=8080, host="127.0.0.1", open_browser=True, lan_access=False):
-    # Initialize the SQLite database on startup
-    try:
-        init_db()
-        print("[DB] SQLite database initialized successfully.")
-        
-        # Clean up any leftover sandboxed job files from previous server sessions
-        uploads_jobs_dir = UPLOADS_DIR / "jobs"
-        if uploads_jobs_dir.exists():
-            cleanup_all_video_sessions()
-            uploads_jobs_dir.mkdir(parents=True, exist_ok=True)
-            print("[DB] Cleaned up temporary sandboxed job directories from previous sessions.")
-    except Exception as e:
-        print(f"[DB] Error initializing database or cleaning up jobs: {e}")
-
     mobile_access["enabled"] = bool(lan_access)
     mobile_access["port"] = int(port)
     mobile_access["token"] = load_or_create_access_token(MOBILE_TOKEN_PATH) if lan_access else None
 
     handler = SubGenRequestHandler
-    with SubGenThreadingServer((host, port), handler) as httpd:
+    try:
+        httpd = SubGenThreadingServer((host, port), handler)
+    except OSError as exc:
+        raise RuntimeError(
+            f"SubGen could not start on {host}:{port}. Another SubGen instance "
+            "or another application is already using that port. Close the existing "
+            "instance or continue using its browser window."
+        ) from exc
+
+    with httpd:
+        # Never clean job-owned files until this process exclusively owns the port.
+        try:
+            init_db()
+            print("[DB] SQLite database initialized successfully.")
+
+            uploads_jobs_dir = UPLOADS_DIR / "jobs"
+            if uploads_jobs_dir.exists():
+                cleanup_all_video_sessions()
+                uploads_jobs_dir.mkdir(parents=True, exist_ok=True)
+                print("[DB] Cleaned up temporary sandboxed job directories from previous sessions.")
+        except Exception as e:
+            print(f"[DB] Error initializing database or cleaning up jobs: {e}")
+
         print(f"\n==================================================")
         print(f"  SubGen Premium Studio UI is running at:")
         print(f"  http://localhost:{port}")
@@ -2821,9 +2938,13 @@ if __name__ == '__main__':
     parser.add_argument("--desktop", action="store_true")
     parser.add_argument("--lan", action="store_true")
     args = parser.parse_args()
-    run_server(
-        port=args.port or args.legacy_port or 8080,
-        host=args.host,
-        open_browser=not args.desktop,
-        lan_access=args.lan,
-    )
+    try:
+        run_server(
+            port=args.port or args.legacy_port or 8080,
+            host=args.host,
+            open_browser=not args.desktop,
+            lan_access=args.lan,
+        )
+    except RuntimeError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        raise SystemExit(1)

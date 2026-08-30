@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "subgen-cli"
-version = "0.4.2"
+version = "0.4.3"
 description = "Interactive subtitle transcription, translation, and burn-in CLI."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -50,6 +50,7 @@ SubGen = "subgen_cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = [".", "cloud"]
 
 [tool.setuptools]
 py-modules = ["subgen_acoustic", "subgen_cli", "subgen_db", "subgen_drive", "subgen_editor", "subgen_longform", "subgen_mobile", "subgen_paths", "subgen_pipeline", "subgen_planner", "subgen_providers", "subgen_review", "subgen_transcription", "subgen_transcription_adapters", "subgen_utils", "subgen_version"]

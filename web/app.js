@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
         reviewIssues: [],
         reviewApproval: null,
         reviewFieldState: {},
+        reviewReadyAnnounced: false,
         waveformPeaks: [],
         setupChecked: false,
         session: { isLocal: true, lanEnabled: false, clientPlatform: 'other', clientBrowser: 'other' },
@@ -202,8 +203,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnDownloadSRT = document.getElementById('btn-download-srt');
     const btnRestart = document.getElementById('btn-restart');
 
-    // Polling Interval ID
+    // Status polling uses one serial timeout at a time. This prevents overlapping
+    // requests and lets a suspended or reloaded page recover from server state.
     let pollIntervalId = null;
+    let statusPollInFlight = false;
+    let reviewTransitionInFlight = false;
+    let lastStatusReadError = null;
 
     // ==========================================
     // THEME TOGGLE
@@ -305,9 +310,9 @@ document.addEventListener('DOMContentLoaded', () => {
         revokeVideoObjectUrl();
     }
 
-    window.addEventListener('pagehide', event => {
-        if (!event.persisted) endCurrentVideoSession({ beacon: true });
-    });
+    // Do not release an uploaded job on pagehide. Reloads, browser crashes, tab
+    // suspension, and accidental closes must remain recoverable. Explicit user
+    // actions such as Remove and Restart still end the current video session.
 
     // ==========================================
     // DRAG AND DROP / UPLOAD FILE
@@ -855,6 +860,60 @@ document.addEventListener('DOMContentLoaded', () => {
     // ==========================================
     // PIPELINE API CALLS (REAL LOGIC)
     // ==========================================
+    function replaceLegacyNonFiniteJsonNumbers(text) {
+        let normalized = '';
+        let inString = false;
+        let escaped = false;
+        const tokens = ['-Infinity', 'Infinity', 'NaN'];
+        const isLeftBoundary = value => value === undefined || /[\s,:\[]/.test(value);
+        const isRightBoundary = value => value === undefined || /[\s,}\]]/.test(value);
+
+        for (let index = 0; index < text.length; index += 1) {
+            const character = text[index];
+            if (inString) {
+                normalized += character;
+                if (escaped) {
+                    escaped = false;
+                } else if (character === '\\') {
+                    escaped = true;
+                } else if (character === '"') {
+                    inString = false;
+                }
+                continue;
+            }
+
+            if (character === '"') {
+                inString = true;
+                normalized += character;
+                continue;
+            }
+
+            const token = tokens.find(candidate => text.startsWith(candidate, index));
+            if (token
+                && isLeftBoundary(text[index - 1])
+                && isRightBoundary(text[index + token.length])) {
+                normalized += 'null';
+                index += token.length - 1;
+                continue;
+            }
+            normalized += character;
+        }
+        return normalized;
+    }
+
+    async function readJsonResponse(response) {
+        const text = await response.text();
+        if (!text) return {};
+        try {
+            return JSON.parse(text);
+        } catch (error) {
+            const normalized = replaceLegacyNonFiniteJsonNumbers(text);
+            if (normalized === text) throw error;
+            console.warn('SubGen received legacy non-finite JSON values; treating them as unavailable.');
+            return JSON.parse(normalized);
+        }
+    }
+
     function addLog(message, type = 'info') {
         const line = document.createElement('div');
         line.className = `log-line ${type}`;
@@ -972,6 +1031,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return res.json();
         })
         .then(data => {
+            updateProgress(5, 'Job accepted. Starting pipeline...');
             addLog(`[PIPELINE] Job started successfully. Monitoring progress...`, 'success');
             // Start Polling Status
             startPollingStatus();
@@ -1012,6 +1072,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     btnStartProcess.addEventListener('click', () => {
         if (!state.videoFile && !state.videoPath) return;
+
+        state.reviewReadyAnnounced = false;
+        lastStatusReadError = null;
         
         // Switch to progress tab
         switchTab('progress');
@@ -1099,84 +1162,208 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function startPollingStatus() {
-        if (pollIntervalId) clearInterval(pollIntervalId);
-        
-        pollIntervalId = setInterval(() => {
-            fetch('/api/process/status')
-                .then(res => res.json())
-                .then(data => {
-                    // Update state
-                    state.status = data.status;
-                    
-                    // Add new logs
-                    if (data.new_logs && data.new_logs.length > 0) {
-                        data.new_logs.forEach(log => {
-                            addLog(log.text, log.type);
-                        });
-                    }
-                    
-                    // Update stages & progress based on server state
-                    updateProgress(data.progress, data.status_label || data.status);
-                    
-                    // Stage highlights
-                    if (data.stage === 'transcription') {
-                        setStageState('stage-transcription', 'running');
-                    } else if (data.stage === 'alignment') {
-                        setStageState('stage-transcription', 'completed');
-                        setStageState('stage-alignment', 'running');
-                    } else if (data.stage === 'translation') {
-                        setStageState('stage-transcription', 'completed');
-                        setStageState('stage-alignment', 'completed');
-                        setStageState('stage-translation', 'running');
-                    } else if (data.stage === 'burning') {
-                        setStageState('stage-transcription', 'completed');
-                        setStageState('stage-alignment', 'completed');
-                        setStageState('stage-translation', 'completed');
-                        setStageState('stage-burning', 'running');
-                    }
-                    
-                    // Handle transitions
-                    if (data.status === 'waiting_for_review') {
-                        clearInterval(pollIntervalId);
-                        runningBadge.style.display = 'none';
-                        addLog(`[SYSTEM] Subtitles generated and translated. Ready for review!`, 'success');
-                        
-                        setStageState('stage-transcription', 'completed');
-                        setStageState('stage-alignment', 'completed');
-                        setStageState('stage-translation', 'completed');
-                        
-                        state.segments = data.segments;
-                        initializeEditor();
-                        
-                        // Enable review tab
-                        navEditor.disabled = false;
-                        switchTab('editor');
-                    } else if (data.status === 'completed') {
-                        clearInterval(pollIntervalId);
-                        runningBadge.style.display = 'none';
-                        addLog(`[SYSTEM] Burning complete! Video rendered successfully.`, 'success');
-                        
-                        setStageState('stage-burning', 'completed');
-                        
-                        // Set up export screen
-                        setupExportScreen(data.output_video, data.final_srt);
-                        
-                        // Enable export tab
-                        navExport.disabled = false;
-                        switchTab('export');
-                    } else if (data.status === 'error') {
-                        clearInterval(pollIntervalId);
-                        runningBadge.style.display = 'none';
-                        btnStartProcess.disabled = false;
-                        addLog(`[ERROR] Process terminated due to errors.`, 'error');
-                    }
-                })
-                .catch(err => {
-                    console.error('Error polling status:', err);
-                });
-        }, 1000);
+    function stopPollingStatus() {
+        if (pollIntervalId !== null) {
+            clearTimeout(pollIntervalId);
+            pollIntervalId = null;
+        }
     }
+
+    function statusUrlForCurrentJob() {
+        return state.uploadJobId
+            ? `/api/process/status?job_id=${encodeURIComponent(state.uploadJobId)}`
+            : '/api/process/status';
+    }
+
+    function hydrateJobFromStatus(data) {
+        if (data.job_id) state.uploadJobId = String(data.job_id);
+        if (data.video_hash) state.videoHash = data.video_hash;
+        if (data.source_lang) state.detectedLanguage = data.source_lang;
+        if (Object.prototype.hasOwnProperty.call(data, 'target_lang')) {
+            state.targetLanguage = data.target_lang || 'source';
+        }
+
+        if (data.video_path && state.videoPath !== data.video_path) {
+            state.videoPath = data.video_path;
+            const videoUrl = `/api/video?path=${encodeURIComponent(data.video_path)}`;
+            editorVideo.src = videoUrl;
+            previewVideo.src = videoUrl;
+        }
+
+        if (Array.isArray(data.issues)) state.reviewIssues = data.issues;
+        if (data.review?.approval !== undefined) {
+            state.reviewApproval = data.review.approval;
+        }
+        if (data.review?.field_state) {
+            state.reviewFieldState = data.review.field_state;
+        }
+    }
+
+    function restoreServerLogs(logs) {
+        if (!Array.isArray(logs) || logs.length === 0) return;
+        state.logs = [];
+        logConsole.innerHTML = '';
+        logs.forEach(log => addLog(log.text, log.type));
+    }
+
+    function renderPipelineStage(data) {
+        if (data.stage === 'transcription') {
+            setStageState('stage-transcription', 'running');
+        } else if (data.stage === 'alignment') {
+            setStageState('stage-transcription', 'completed');
+            setStageState('stage-alignment', 'running');
+        } else if (data.stage === 'translation') {
+            setStageState('stage-transcription', 'completed');
+            setStageState('stage-alignment', 'completed');
+            setStageState('stage-translation', 'running');
+        } else if (data.stage === 'burning') {
+            setStageState('stage-transcription', 'completed');
+            setStageState('stage-alignment', 'completed');
+            setStageState('stage-translation', 'completed');
+            setStageState('stage-burning', 'running');
+        }
+    }
+
+    async function openReviewFromStatus(data) {
+        if (reviewTransitionInFlight) return false;
+        reviewTransitionInFlight = true;
+        try {
+            if (!Array.isArray(data.segments) || data.segments.length === 0) {
+                throw new Error('The completed job did not return subtitle segments.');
+            }
+
+            state.segments = data.segments;
+            await initializeEditor();
+
+            setStageState('stage-transcription', 'completed');
+            setStageState('stage-alignment', 'completed');
+            setStageState('stage-translation', 'completed');
+            runningBadge.style.display = 'none';
+            navEditor.disabled = false;
+            updateProgress(100, data.status_label || 'Waiting for subtitle review');
+            switchTab('editor');
+
+            if (!state.reviewReadyAnnounced) {
+                addLog('[SYSTEM] Subtitles generated and translated. Ready for review!', 'success');
+                state.reviewReadyAnnounced = true;
+            }
+            return true;
+        } catch (error) {
+            console.error('Could not initialize the review editor:', error);
+            updateProgress(100, 'Preparing review interface...');
+            const message = `[ERROR] Review data is ready, but the editor could not open: ${error.message}`;
+            if (state.logs[state.logs.length - 1]?.text !== message) addLog(message, 'error');
+            return false;
+        } finally {
+            reviewTransitionInFlight = false;
+        }
+    }
+
+    async function applyProcessStatus(data, { restoreLogs = false } = {}) {
+        if (!data || typeof data !== 'object') {
+            throw new Error('The server returned an invalid job-status response.');
+        }
+        if (!data.job_id && data.status === 'idle') return false;
+
+        hydrateJobFromStatus(data);
+        state.status = data.status;
+
+        if (restoreLogs) {
+            restoreServerLogs(data.logs);
+        } else if (Array.isArray(data.new_logs)) {
+            data.new_logs.forEach(log => addLog(log.text, log.type));
+        }
+
+        updateProgress(data.progress ?? 0, data.status_label || data.status || 'Processing');
+        renderPipelineStage(data);
+
+        if (data.status === 'waiting_for_review') {
+            return !(await openReviewFromStatus(data));
+        }
+        if (data.status === 'completed') {
+            runningBadge.style.display = 'none';
+            setStageState('stage-burning', 'completed');
+            setupExportScreen(data.output_video, data.final_srt);
+            navExport.disabled = false;
+            switchTab('export');
+            return false;
+        }
+        if (data.status === 'error') {
+            runningBadge.style.display = 'none';
+            btnStartProcess.disabled = false;
+            if (data.error_message) addLog(`[ERROR] ${data.error_message}`, 'error');
+            addLog('[ERROR] Process terminated due to errors.', 'error');
+            return false;
+        }
+
+        runningBadge.style.display = 'block';
+        return Boolean(data.job_id || state.uploadJobId);
+    }
+
+    async function pollProcessStatus({ restoreLogs = false } = {}) {
+        if (statusPollInFlight) return;
+        statusPollInFlight = true;
+        pollIntervalId = null;
+        let continuePolling = false;
+
+        try {
+            const response = await fetch(statusUrlForCurrentJob(), { cache: 'no-store' });
+            if (!response.ok) throw new Error(`Status request failed (${response.status})`);
+            const data = await readJsonResponse(response);
+            continuePolling = await applyProcessStatus(data, { restoreLogs });
+            if (lastStatusReadError) {
+                addLog('[SYSTEM] Job status connection restored.', 'success');
+                lastStatusReadError = null;
+            }
+        } catch (error) {
+            console.error('Error polling status:', error);
+            if (lastStatusReadError !== error.message) {
+                addLog(`[ERROR] Unable to read job status: ${error.message}. Retrying automatically.`, 'error');
+                lastStatusReadError = error.message;
+            }
+            continuePolling = Boolean(state.uploadJobId)
+                && !['waiting_for_review', 'completed', 'error'].includes(state.status);
+        } finally {
+            statusPollInFlight = false;
+        }
+
+        if (continuePolling) {
+            pollIntervalId = setTimeout(() => {
+                void pollProcessStatus();
+            }, lastStatusReadError ? 2000 : 1000);
+        }
+    }
+
+    function startPollingStatus(options = {}) {
+        stopPollingStatus();
+        void pollProcessStatus(options);
+    }
+
+    function recoverActiveJob() {
+        if (statusPollInFlight) return;
+        startPollingStatus({ restoreLogs: true });
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible') return;
+        const reviewNeedsRecovery = state.status === 'waiting_for_review' && navEditor.disabled;
+        if (state.uploadJobId && (['processing', 'burning'].includes(state.status) || reviewNeedsRecovery)) {
+            startPollingStatus({ restoreLogs: true });
+        } else if (!state.uploadJobId) {
+            recoverActiveJob();
+        }
+    });
+
+    window.addEventListener('online', () => {
+        const reviewNeedsRecovery = state.status === 'waiting_for_review' && navEditor.disabled;
+        if (state.uploadJobId && (['processing', 'burning'].includes(state.status) || reviewNeedsRecovery)) {
+            startPollingStatus({ restoreLogs: true });
+        }
+    });
+
+    window.addEventListener('pageshow', event => {
+        if (event.persisted) recoverActiveJob();
+    });
 
     // ==========================================
     // INTERACTIVE SUBTITLE SEGMENT EDITOR
@@ -1290,6 +1477,23 @@ document.addEventListener('DOMContentLoaded', () => {
         return state.editorIssues;
     }
 
+    function reviewIssueEvidenceSummary(issue) {
+        const evidence = issue?.evidence || {};
+        const details = [];
+        if (evidence.unit_text) {
+            details.push(`Detected sequence: “${String(evidence.unit_text)}”`);
+        }
+        if (Number.isFinite(Number(evidence.text_occurrences))) {
+            details.push(`Transcript occurrences: ${Number(evidence.text_occurrences)}`);
+        }
+        const start = Number(issue?.start_seconds);
+        const end = Number(issue?.end_seconds);
+        if (Number.isFinite(start) && Number.isFinite(end)) {
+            details.push(`Audio: ${formatSecondsToTime(start)}–${formatSecondsToTime(end)}`);
+        }
+        return details.join(' • ');
+    }
+
     function renderEditorQuality() {
         const { errors, warnings } = validateEditorSegments();
         const filter = editorIssueFilter?.value || 'all';
@@ -1316,11 +1520,15 @@ document.addEventListener('DOMContentLoaded', () => {
         editorQualityIssues.innerHTML = [...reviewIssues, ...deterministic].slice(0, 30).map(issue => {
             const cueIndex = issue.index || state.segments.findIndex(segment => (issue.affected_cue_ids || []).includes(segment.id)) + 1;
             const severity = issue.severity || (errors.includes(issue) ? 'critical' : 'warning');
+            const resolved = ['corrected', 'accepted', 'dismissed_with_reason'].includes(issue.status);
+            const evidenceSummary = reviewIssueEvidenceSummary(issue);
             const action = issue.id && issue.status === 'unresolved'
-                ? `<button type="button" class="issue-resolve" data-issue-id="${escapeHtml(issue.id)}" data-issue-severity="${severity}">${severity === 'critical' ? 'Mark corrected' : 'Accept'}</button>`
-                : '';
-            return `<div class="quality-issue ${severity === 'critical' ? 'error' : ''}" data-cue-index="${cueIndex > 0 ? cueIndex : ''}" data-start-seconds="${issue.start_seconds ?? ''}">` +
-                `<button type="button" class="issue-jump"><span>${severity}</span>${escapeHtml(issue.message)}</button>${action}</div>`;
+                ? `<button type="button" class="issue-resolve" data-issue-id="${escapeHtml(issue.id)}" data-issue-severity="${severity}">${severity === 'critical' ? 'Confirm / resolve' : 'Accept'}</button>`
+                : resolved
+                    ? `<span class="issue-status">${issue.status === 'accepted' ? 'Accepted' : 'Resolved'}</span>`
+                    : '';
+            return `<div class="quality-issue ${severity === 'critical' ? 'error' : ''} ${resolved ? 'resolved' : ''}" data-cue-index="${cueIndex > 0 ? cueIndex : ''}" data-start-seconds="${issue.start_seconds ?? ''}">` +
+                `<button type="button" class="issue-jump"><span>${severity}</span><span class="issue-copy"><span>${escapeHtml(issue.message)}</span>${evidenceSummary ? `<small class="issue-evidence">${escapeHtml(evidenceSummary)}</small>` : ''}</span></button>${action}</div>`;
         }).join('');
         editorQualityIssues.querySelectorAll('[data-cue-index]').forEach(button => {
             button.querySelector('.issue-jump')?.addEventListener('click', () => {
@@ -1629,7 +1837,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch(`/api/editor/draft?video_hash=${encodeURIComponent(state.videoHash)}&target_language=${encodeURIComponent(state.targetLanguage || 'source')}`);
             if (!response.ok) return;
-            const data = await response.json();
+            const data = await readJsonResponse(response);
             if (data.draft?.segments?.length) state.segments = data.draft.segments;
             if (data.draft?.review) {
                 state.reviewIssues = data.draft.review.issues || [];
@@ -1668,7 +1876,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }),
             });
             if (!response.ok) throw new Error('Draft save failed');
-            const data = await response.json();
+            const data = await readJsonResponse(response);
             if (data.review) {
                 state.reviewIssues = data.review.issues || [];
                 state.reviewApproval = data.review.approval || null;
@@ -1863,7 +2071,7 @@ document.addEventListener('DOMContentLoaded', () => {
         mobileAccessUnavailable.hidden = true;
         const response = await fetch('/api/mobile/access', { cache: 'no-store' });
         if (!response.ok) throw new Error('Mobile access settings are unavailable.');
-        const data = await response.json();
+        const data = await readJsonResponse(response);
         state.mobileAccessUrls = data.urls || [];
         renderLastMobileDevice(data.last_device);
         mobileNetworkSelect.innerHTML = '';
@@ -1918,7 +2126,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const accepted = confirm('Allow SubGen on this trusted private network? Windows will request administrator permission.');
         if (!accepted) return;
         const response = await fetch('/api/mobile/repair', { method: 'POST' });
-        const data = await response.json();
+        const data = await readJsonResponse(response);
         if (!response.ok) throw new Error(data.error || 'Could not start Windows network repair.');
         mobileAccessState.textContent = 'Waiting for Windows permission...';
         for (let attempt = 0; attempt < 60; attempt += 1) {
@@ -1978,7 +2186,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }),
             },
         );
-        const data = await response.json();
+        const data = await readJsonResponse(response);
         if (!response.ok) {
             editorSaveState.textContent = 'Retranslation failed';
             addLog(`[ERROR] ${data.error || 'Selected-cue retranslation failed'}`, 'error');
@@ -2029,7 +2237,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 accept_warnings: acceptWarnings,
             }),
         });
-        const data = await response.json();
+        const data = await readJsonResponse(response);
         if (!response.ok) {
             state.reviewIssues = data.issues || state.reviewIssues;
             renderEditor();
@@ -2051,7 +2259,7 @@ document.addEventListener('DOMContentLoaded', () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ segments: state.segments }),
         });
-        const validation = await validationResponse.json();
+        const validation = await readJsonResponse(validationResponse);
         if (!validation.accept) {
             state.editorIssues = validation;
             renderEditor();
@@ -2071,7 +2279,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     item_index: state.driveReviewContext.itemIndex,
                 }),
             });
-            const data = await response.json();
+            const data = await readJsonResponse(response);
             if (!response.ok) {
                 addLog(`[ERROR] ${data.error || 'Drive burn request failed'}`, 'error');
                 return;
@@ -2106,7 +2314,7 @@ document.addEventListener('DOMContentLoaded', () => {
             body: JSON.stringify(payload)
         })
         .then(async res => {
-            const body = await res.json();
+            const body = await readJsonResponse(res);
             if (!res.ok) throw new Error(body.error || 'Burning trigger failed');
             return body;
         })
@@ -2138,6 +2346,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     btnRestart.addEventListener('click', () => {
+        stopPollingStatus();
         endCurrentVideoSession();
         // Reset state
         state.videoFile = null;
@@ -2153,6 +2362,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.editorUndo = [];
         state.editorRedo = [];
         state.editorIssues = { errors: [], warnings: [] };
+        state.reviewReadyAnnounced = false;
         state.waveformPeaks = [];
         
         // Reset UI
@@ -2732,8 +2942,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function resolveReviewIssue(issueId, severity) {
         const status = severity === 'critical' ? 'corrected' : 'accepted';
+        const issue = (state.reviewIssues || []).find(candidate => candidate.id === issueId);
+        const evidenceSummary = reviewIssueEvidenceSummary(issue);
         const reason = severity === 'critical'
-            ? window.prompt('Describe the correction made for this issue:')
+            ? window.prompt(`Describe what you verified or corrected for this issue:${evidenceSummary ? `\n\n${evidenceSummary}` : ''}`)
             : 'Explicitly accepted during review';
         if (severity === 'critical' && !reason) return;
         const driveContext = state.driveReviewContext;
@@ -2755,7 +2967,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 reason,
             }),
         });
-        const data = await response.json();
+        const data = await readJsonResponse(response);
         if (!response.ok) {
             addLog(`[ERROR] ${data.error || 'Issue resolution failed'}`, 'error');
             return;
@@ -3136,6 +3348,10 @@ document.addEventListener('DOMContentLoaded', () => {
         'zh': 'Chinese (中文)',
         'ja': 'Japanese (日本語)'
     };
+
+    // A completed or running server job may outlive a suspended/reloaded page.
+    // Reattach before requiring the user to upload or spend provider calls again.
+    recoverActiveJob();
 
     sessionReady.then(() => fetch('/api/languages'))
         .then(res => res.json())

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 
-LONGFORM_PIPELINE_VERSION = "2026-08-17-longform-v9-evidence-gated-repetition"
+LONGFORM_PIPELINE_VERSION = "2026-08-29-longform-v10-iterative-coverage-recovery"
 COVERAGE_RECOVERY_SELECTION_VERSION = (
     "2026-08-06-acceptance-blockers-v3"
 )
@@ -1490,6 +1490,15 @@ def coverage_validation_improved(
     return False
 
 
+def coverage_recovery_context_for_attempt(
+    context_seconds: float,
+    attempt_number: int,
+) -> float:
+    """Narrow repeated recovery windows without changing the target gap."""
+    attempt_index = max(0, int(attempt_number) - 1)
+    return max(0.0, float(context_seconds)) / (2 ** attempt_index)
+
+
 def supplement_timing_evidence_segments(
     segments: Sequence[Mapping[str, Any]],
     supplemental_segments: Sequence[Mapping[str, Any]],
@@ -2516,7 +2525,7 @@ def run_longform_transcription(
                     * max(1, len(plan)),
                 )
             )
-            gaps, recovery_selection = select_coverage_recovery_gaps(
+            _, recovery_selection = select_coverage_recovery_gaps(
                 validation,
                 max_uncovered_gap_seconds=max_uncovered_gap_seconds,
                 join_seconds=max(
@@ -2531,7 +2540,17 @@ def run_longform_transcription(
             manifest["coverage_recovery_selection"] = (
                 recovery_selection
             )
-            for recovery_index, gap in enumerate(gaps, 1):
+            per_gap_attempt_limit = max(
+                1,
+                int(coverage_recovery_max_attempts_per_chunk),
+            )
+            recovery_selection["per_gap_attempt_limit"] = (
+                per_gap_attempt_limit
+            )
+            attempted_gaps = []
+            terminal_provider_error = False
+            recovery_index = 0
+            while recovery_index < effective_recovery_attempts:
                 if validation["accept"]:
                     break
                 if not any(
@@ -2542,21 +2561,67 @@ def run_longform_transcription(
                     for problem in validation.get("problems") or []
                 ):
                     break
+
+                current_gaps, current_selection = (
+                    select_coverage_recovery_gaps(
+                        validation,
+                        max_uncovered_gap_seconds=(
+                            max_uncovered_gap_seconds
+                        ),
+                        join_seconds=max(
+                            float(coverage_recovery_context_seconds) * 2.0,
+                            float(max_uncovered_gap_seconds),
+                        ),
+                        max_window_seconds=float(
+                            coverage_recovery_max_window_seconds
+                        ),
+                        max_attempts=effective_recovery_attempts,
+                    )
+                )
+                selected_gap = None
+                gap_attempt_number = None
+                for candidate_gap in current_gaps:
+                    prior_attempts = sum(
+                        1
+                        for attempted_gap in attempted_gaps
+                        if (
+                            float(attempted_gap[1])
+                            > float(candidate_gap[0])
+                            and float(attempted_gap[0])
+                            < float(candidate_gap[1])
+                        )
+                    )
+                    if prior_attempts < per_gap_attempt_limit:
+                        selected_gap = candidate_gap
+                        gap_attempt_number = prior_attempts + 1
+                        break
+                if selected_gap is None:
+                    break
+
+                recovery_index += 1
+                gap = selected_gap
+                attempted_gaps.append(list(gap))
                 targets_blocking_gap = any(
                     float(blocking[1]) > float(gap[0])
                     and float(blocking[0]) < float(gap[1])
-                    for blocking in recovery_selection.get(
+                    for blocking in current_selection.get(
                         "blocking_gaps",
                         [],
                     )
                 )
+                recovery_context_seconds = (
+                    coverage_recovery_context_for_attempt(
+                        coverage_recovery_context_seconds,
+                        gap_attempt_number,
+                    )
+                )
                 recovery_start = max(
                     0.0,
-                    float(gap[0]) - float(coverage_recovery_context_seconds),
+                    float(gap[0]) - recovery_context_seconds,
                 )
                 recovery_end = min(
                     float(preflight["duration_seconds"]),
-                    float(gap[1]) + float(coverage_recovery_context_seconds),
+                    float(gap[1]) + recovery_context_seconds,
                 )
                 recovery_chunk = {
                     "index": recovery_index,
@@ -2568,6 +2633,10 @@ def run_longform_transcription(
                     "left_boundary_kind": "coverage_recovery",
                     "right_boundary_kind": "coverage_recovery",
                     "coverage_recovery_gap": list(gap),
+                    "coverage_recovery_attempt": gap_attempt_number,
+                    "coverage_recovery_context_seconds": (
+                        recovery_context_seconds
+                    ),
                 }
                 recovery_audio = (
                     output_dir
@@ -2662,7 +2731,7 @@ def run_longform_transcription(
                         segments,
                         recovery_artifact,
                         gap,
-                        context_seconds=coverage_recovery_context_seconds,
+                        context_seconds=recovery_context_seconds,
                         min_novel_word_probability=(
                             coverage_recovery_min_novel_probability
                         ),
@@ -2715,6 +2784,10 @@ def run_longform_transcription(
                     recovery_report["targeted_blocking_gap"] = bool(
                         targets_blocking_gap
                     )
+                    recovery_report["attempt"] = gap_attempt_number
+                    recovery_report["context_seconds"] = (
+                        recovery_context_seconds
+                    )
                     recovery_report["blocking_gap_resolved"] = bool(
                         targets_blocking_gap
                         and not validation_has_blocking_gap_within(
@@ -2748,6 +2821,8 @@ def run_longform_transcription(
                             targets_blocking_gap
                         ),
                         "blocking_gap_resolved": False,
+                        "attempt": gap_attempt_number,
+                        "context_seconds": recovery_context_seconds,
                     }
                     recovery_reports.append(failure_report)
                     failure_record = {
@@ -2778,6 +2853,12 @@ def run_longform_transcription(
                     )
                 ):
                     break
+            recovery_selection["attempted_count"] = len(
+                recovery_reports
+            )
+            recovery_selection["terminal_provider_error"] = bool(
+                terminal_provider_error
+            )
             manifest["coverage_recovery"] = recovery_reports
             transcript_text = re.sub(
                 r"\s+",
@@ -2798,10 +2879,32 @@ def run_longform_transcription(
                     timing_evidence_filter_reports
                 )
             atomic_write_json(manifest_path, manifest)
-            raise RuntimeError(
+            error = RuntimeError(
                 "Long-form transcription failed its independent speech/silence "
-                f"validation: {validation['problems']}."
+                f"validation: {validation['problems']}; "
+                f"speech_seconds={validation.get('speech_seconds')}, "
+                "uncovered_speech_seconds="
+                f"{validation.get('uncovered_speech_seconds')}, "
+                "uncovered_speech_ratio="
+                f"{validation.get('uncovered_speech_ratio')}, "
+                "max_uncovered_gap_seconds="
+                f"{validation.get('max_uncovered_gap_seconds')}, "
+                f"diagnostic_manifest={manifest_path}."
             )
+            error.diagnostics = {
+                "schema": "subgen_longform_validation_failure_v1",
+                "manifest_path": str(manifest_path),
+                "run_identity": run_identity,
+                "source_sha256": source_sha256,
+                "provider": provider,
+                "model": model,
+                "validation": validation,
+                "coverage_recovery_selection": manifest.get(
+                    "coverage_recovery_selection"
+                ),
+                "coverage_recovery": recovery_reports,
+            }
+            raise error
         for recovery_audio in recovery_audio_paths:
             recovery_audio.unlink(missing_ok=True)
     else:

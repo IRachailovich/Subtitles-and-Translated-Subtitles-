@@ -93,6 +93,7 @@ from subgen_review import (
     add_issue as add_review_issue,
     apply_selected_cue_retranslation,
     assert_burn_allowed,
+    begin_burn,
     complete_burn,
     contiguous_token_repetition_runs,
     estimate_recovery_boundaries,
@@ -386,11 +387,20 @@ def resolve_local_timing_anchor_fallback_after_failure(
     )
     if model:
         return model
-    raise RuntimeError(
+    wrapped = RuntimeError(
         "OpenAI Whisper-1 timing anchors failed. "
         "SubGen did not start an unrequested local model; "
         "timing validation failed closed."
-    ) from error
+    )
+    wrapped.diagnostics = {
+        "schema": "subgen_timing_anchor_failure_v1",
+        "provider": "openai",
+        "model": "whisper-1",
+        "cause_type": type(error).__name__,
+        "cause_message": str(error),
+        "cause_diagnostics": getattr(error, "diagnostics", None),
+    }
+    raise wrapped from error
 
 
 CACHE_ACTION_POLICIES = {
@@ -8644,19 +8654,12 @@ def transcribe_provider_longform(
     expected_timing = bool(
         force_expected_timing
         if force_expected_timing is not None
-        else (
-            provider in {"google", "xai"}
-            or (
-                provider == "openai"
-                and model in {"whisper-1", "gpt-4o-transcribe-diarize"}
-            )
-            or timing_kind in {"native_word", "native_segment", "prompted_segment"}
-        )
+        else timing_kind in {"native_word", "native_segment", "prompted_segment"}
     )
     timing_evidence_only = bool(force_expected_timing is True)
 
     def transcribe_chunk(chunk_audio_path, chunk):
-        if provider == "google":
+        if provider == "google" and expected_timing:
             artifact = call_google_timestamped_transcription(
                 pipeline_config,
                 chunk_audio_path,
@@ -8664,6 +8667,33 @@ def transcribe_provider_longform(
                 language=language,
                 prompt=prompt,
                 allow_empty=True,
+            )
+        elif provider == "google":
+            text, usage = call_google_transcription(
+                pipeline_config,
+                chunk_audio_path,
+                model=model,
+                language=language,
+                prompt=prompt,
+                duration_seconds=chunk.get("duration"),
+                prompt_version=pipeline_config.get(
+                    "google_transcription_prompt_version",
+                    CURRENT_PRODUCTION_PROMPT_VERSION,
+                ),
+                diagnostic_output_dir=(
+                    Path(output_dir)
+                    / f"chunk-{int(chunk.get('index', 0)):04d}.google"
+                ),
+                allow_empty=True,
+            )
+            artifact = TranscriptionArtifact(
+                provider=provider,
+                model=model,
+                text=text,
+                language=language,
+                duration=chunk.get("duration"),
+                timing_kind="none",
+                usage=usage,
             )
         elif provider == "openai" and model in {
             "whisper-1",
@@ -10179,7 +10209,11 @@ def main(
                 raise RuntimeError(
                     "Burn is fail-closed: provide an approved review manifest for this exact subtitle draft."
                 )
-            burn_gate = assert_burn_allowed(approved_review, video_path_obj)
+            # Establish the persisted review lifecycle invariant before the
+            # render completes.  complete_burn() records hashes in this
+            # structure; without begin_burn(), a newly approved review still
+            # has burn=None and completion crashes after FFmpeg reaches 100%.
+            burn_gate = begin_burn(approved_review, video_path_obj)
             if hashlib.sha256(srt_path.read_bytes()).hexdigest() != burn_gate["approved_draft_hash"]:
                 raise RuntimeError("Provided SRT bytes do not match the approved draft hash.")
 
